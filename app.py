@@ -28,7 +28,9 @@ st.markdown("""
 if "pantalla" not in st.session_state:
     st.session_state.pantalla = "login"
 if "filtro_familia" not in st.session_state:
-    st.session_state.filtro_familia = "Todas"
+    st.session_state.filtro_familia = "-- Selecciona una familia --"
+if "busqueda_rapida" not in st.session_state:
+    st.session_state.busqueda_rapida = ""
 if "busqueda_codigo_tmp" not in st.session_state:
     st.session_state.busqueda_codigo_tmp = ""
 if "busqueda_clave_tmp" not in st.session_state:
@@ -96,7 +98,6 @@ if df_productos is not None:
     # Definir columnas visibles predeterminadas si no existen en session_state
     if "columnas_seleccionadas" not in st.session_state:
         columnas_base = ["Numero de familia", "Descripcion de producto"]
-        # Filtramos solo las que realmente existan en el CSV
         st.session_state.columnas_seleccionadas = [c for c in columnas_base if c in df_productos.columns]
 
 # ==========================================
@@ -105,7 +106,7 @@ if df_productos is not None:
 if st.session_state.pantalla == "login":
     st.markdown("<h1 style='text-align: center;'>🖼️</h1>", unsafe_allow_html=True)
     st.markdown("<h2 style='text-align: center; color: #000000;'>Visualizador de Catálogo</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #6B7280;'>Filtra y consulta tus 15,000 productos de forma rápida.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #6B7280;'>Filtra y consulta tus productos de forma rápida.</p>", unsafe_allow_html=True)
     st.markdown("---")
 
     col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
@@ -162,7 +163,6 @@ elif st.session_state.pantalla == "busqueda_manual":
     if df_productos is None:
         st.error("⚠️ Crítico: No se pudo leer el archivo 'productos.csv'.")
     else:
-        # CONTROL DE COLUMNAS A MOSTRAR (SHOW/HIDE)
         with st.expander("👁️ Configurar columnas visibles en la tabla", expanded=False):
             st.session_state.columnas_seleccionadas = st.multiselect(
                 "Selecciona las columnas que deseas visualizar:",
@@ -243,7 +243,11 @@ elif st.session_state.pantalla == "resultados":
             )
             
             if columna_familia_real:
-                lista_familias = ["Todas"] + sorted(df_productos[columna_familia_real].dropna().unique().tolist())
+                # Opciones comenzando con indicador por defecto
+                opcion_default = "-- Selecciona una familia --"
+                familias_unicas = sorted(df_productos[columna_familia_real].dropna().unique().tolist())
+                lista_familias = [opcion_default] + familias_unicas
+                
                 idx_actual = lista_familias.index(st.session_state.filtro_familia) if st.session_state.filtro_familia in lista_familias else 0
                 
                 seleccion_actual = st.selectbox(
@@ -255,66 +259,108 @@ elif st.session_state.pantalla == "resultados":
                 
                 if seleccion_actual != st.session_state.filtro_familia:
                     st.session_state.filtro_familia = seleccion_actual
+                    st.session_state.busqueda_rapida = "" # Resetea la búsqueda rápida al cambiar de familia
                     st.rerun()
             else:
                 st.error("Columna 'Familia' no detectada en el archivo CSV.")
 
+            # Botón para limpiar selección rápida
+            if st.session_state.filtro_familia != "-- Selecciona una familia --":
+                if st.button("🔄 Reiniciar selección", use_container_width=True):
+                    st.session_state.filtro_familia = "-- Selecciona una familia --"
+                    st.session_state.busqueda_rapida = ""
+                    st.rerun()
+
         # COLUMNA DERECHA: RESULTADOS POR FAMILIA
         with col_panel_resultados:
-            df_filtrado = df_productos.copy()
+            total_catalogo = len(df_productos)
             
-            if st.session_state.filtro_familia != "Todas" and columna_familia_real:
-                df_filtrado = df_filtrado[df_filtrado[columna_familia_real] == st.session_state.filtro_familia]
+            # Verificar si se seleccionó una familia válida
+            if st.session_state.filtro_familia != "-- Selecciona una familia --" and columna_familia_real:
+                df_filtrado = df_productos[df_productos[columna_familia_real] == st.session_state.filtro_familia].copy()
+                
+                # BUSCADOR GLOBAL RÁPIDO (MEJORA 4)
+                busqueda = st.text_input(
+                    "🔤 Buscador rápido por palabra clave (Descripción / Código):", 
+                    value=st.session_state.busqueda_rapida,
+                    placeholder="Ej. desarmador, pinza, martillo..."
+                )
+                if busqueda != st.session_state.busqueda_rapida:
+                    st.session_state.busqueda_rapida = busqueda
+                    st.rerun()
 
-            total_filas = len(df_filtrado)
-            
-            col_inf1, col_inf2 = st.columns(2)
-            with col_inf1:
-                st.markdown(
-                    f"""
-                    <div class='sombra-tenue'>
-                        <span style='color: #6B7280; font-size: 12px;'>Familia activa</span><br>
-                        <strong style='color: #000000; font-size: 16px;'>{st.session_state.filtro_familia}</strong>
-                    </div>
-                    """, 
-                    unsafe_allow_html=True
-                )
-            with col_inf2:
-                st.markdown(
-                    f"""
-                    <div class='sombra-tenue'>
-                        <span style='color: #6B7280; font-size: 12px;'>Coincidencias</span><br>
-                        <strong style='color: #000000; font-size: 16px;'>{total_filas} productos</strong>
-                    </div>
-                    """, 
-                    unsafe_allow_html=True
-                )
-            
-            # CONTROL DE COLUMNAS A MOSTRAR (SHOW/HIDE)
-            with st.expander("👁️ Configurar columnas visibles en la tabla", expanded=False):
-                st.session_state.columnas_seleccionadas = st.multiselect(
-                    "Añade o quita columnas del catálogo para mostrar:",
-                    options=list(df_productos.columns),
-                    default=st.session_state.columnas_seleccionadas
-                )
+                if st.session_state.busqueda_rapida:
+                    # Filtra en la columna de descripción o código si existen
+                    condicion = pd.Series(False, index=df_filtrado.index)
+                    for c in ["Descripcion de producto", columna_codigo_real, columna_clave_real]:
+                        if c and c in df_filtrado.columns:
+                            condicion = condicion | df_filtrado[c].astype(str).str.contains(st.session_state.busqueda_rapida, case=False, na=False)
+                    df_filtrado = df_filtrado[condicion]
 
-            cols_disponibles = st.session_state.columnas_seleccionadas
-            
-            if total_filas > 0:
-                if len(cols_disponibles) > 0:
-                    st.dataframe(
-                        df_filtrado[cols_disponibles], 
-                        use_container_width=True, 
-                        hide_index=True,
-                        height=500
+                total_filas = len(df_filtrado)
+                
+                # TARJETAS / MÉTRICAS (MEJORA 2)
+                col_inf1, col_inf2, col_inf3 = st.columns(3)
+                with col_inf1:
+                    st.markdown(
+                        f"""
+                        <div class='sombra-tenue'>
+                            <span style='color: #6B7280; font-size: 11px;'>Familia Activa</span><br>
+                            <strong style='color: #000000; font-size: 14px;'>{st.session_state.filtro_familia}</strong>
+                        </div>
+                        """, 
+                        unsafe_allow_html=True
                     )
-                    
-                    texto_compartir = f"Esquema Comercial 2017 - Familia: {st.session_state.filtro_familia}\n\n"
-                    for index, fila in df_filtrado[cols_disponibles].head(3).iterrows():
-                        datos = [f"{col}: {fila[col]}" for col in cols_disponibles]
-                        texto_compartir += " | ".join(datos) + "\n"
-                    st.text_area("📋 Copiar resumen para compartir:", value=texto_compartir, height=80)
+                with col_inf2:
+                    st.markdown(
+                        f"""
+                        <div class='sombra-tenue'>
+                            <span style='color: #6B7280; font-size: 11px;'>Coincidencias</span><br>
+                            <strong style='color: #2563EB; font-size: 14px;'>{total_filas} productos</strong>
+                        </div>
+                        """, 
+                        unsafe_allow_html=True
+                    )
+                with col_inf3:
+                    st.markdown(
+                        f"""
+                        <div class='sombra-tenue'>
+                            <span style='color: #6B7280; font-size: 11px;'>Total Catálogo</span><br>
+                            <strong style='color: #000000; font-size: 14px;'>{total_catalogo} productos</strong>
+                        </div>
+                        """, 
+                        unsafe_allow_html=True
+                    )
+                
+                # CONTROL DE COLUMNAS A MOSTRAR (SHOW/HIDE)
+                with st.expander("👁️ Configurar columnas visibles en la tabla", expanded=False):
+                    st.session_state.columnas_seleccionadas = st.multiselect(
+                        "Añade o quita columnas del catálogo para mostrar:",
+                        options=list(df_productos.columns),
+                        default=st.session_state.columnas_seleccionadas
+                    )
+
+                cols_disponibles = st.session_state.columnas_seleccionadas
+                
+                if total_filas > 0:
+                    if len(cols_disponibles) > 0:
+                        st.dataframe(
+                            df_filtrado[cols_disponibles], 
+                            use_container_width=True, 
+                            hide_index=True,
+                            height=450
+                        )
+                        
+                        texto_compartir = f"Esquema Comercial 2017 - Familia: {st.session_state.filtro_familia}\n\n"
+                        for index, fila in df_filtrado[cols_disponibles].head(3).iterrows():
+                            datos = [f"{col}: {fila[col]}" for col in cols_disponibles]
+                            texto_compartir += " | ".join(datos) + "\n"
+                        st.text_area("📋 Copiar resumen para compartir:", value=texto_compartir, height=80)
+                    else:
+                        st.warning("⚠️ Selecciona al menos una columna para mostrar en el selector desplegable.")
                 else:
-                    st.warning("⚠️ Selecciona al menos una columna para mostrar en el selector desplegable.")
+                    st.warning("⚠️ No se encontraron productos con el filtro aplicado.")
+
             else:
-                st.warning("⚠️ No se encontraron productos para la familia seleccionada.")
+                # PANTALLA INICIAL VACÍA HASTA QUE SELECCIONE UNA FAMILIA
+                st.info("👈 **Por favor, selecciona una familia en el panel de la izquierda para desplegar el catálogo.**")
