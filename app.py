@@ -2,18 +2,39 @@ import pandas as pd
 import streamlit as st
 import unicodedata
 
-# Configuración de la página en modo ancho para simular la experiencia de Excel
+# Configuración de la página en modo ancho para vista tipo catálogo/Excel
 st.set_page_config(page_title="Catálogo App", page_icon="📱", layout="wide")
+
+# Estilos CSS personalizados para sombreados tenues
+st.markdown("""
+    <style>
+    .sombra-tenue {
+        background-color: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        padding: 10px 14px;
+        border-radius: 6px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        margin-bottom: 12px;
+    }
+    .titulo-negro {
+        color: #000000 !important;
+        font-weight: 600;
+        margin: 0;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- CONTROL DE PANTALLAS Y FILTROS (ESTADOS) ---
 if "pantalla" not in st.session_state:
     st.session_state.pantalla = "login"
-if "columnas_visibles" not in st.session_state:
-    st.session_state.columnas_visibles = []
 if "filtro_familia" not in st.session_state:
     st.session_state.filtro_familia = "Todas"
+if "busqueda_codigo_tmp" not in st.session_state:
+    st.session_state.busqueda_codigo_tmp = ""
+if "busqueda_clave_tmp" not in st.session_state:
+    st.session_state.busqueda_clave_tmp = ""
 
-# Función auxiliar para normalizar texto (quita acentos y espacios extra)
+# Función auxiliar para normalizar texto
 def normalizar_texto(texto):
     if not isinstance(texto, str):
         return ""
@@ -27,37 +48,63 @@ def cargar_datos():
     try:
         df = pd.read_csv("productos.csv", encoding="utf-8")
         return df
-    except Exception as e:
+    except Exception:
         try:
             df = pd.read_csv("productos.csv", encoding="latin1")
             return df
-        except Exception as e2:
+        except Exception:
             return None
 
 df_productos = cargar_datos()
 
-# Mapeo inteligente de columnas
+# IDENTIFICACIÓN Y ESTANDARIZACIÓN BASE DE COLUMNAS
 columna_familia_real = None
 columna_codigo_real = None
 columna_clave_real = None
+columna_num_fam_real = None
+columna_desc_prod_real = None
 
 if df_productos is not None:
     df_productos.columns = df_productos.columns.str.strip()
+    
     for col in df_productos.columns:
         col_norm = normalizar_texto(col)
+        
         if col_norm == "familia":
             columna_familia_real = col
         elif col_norm == "codigo":
             columna_codigo_real = col
         elif col_norm == "clave":
             columna_clave_real = col
+        elif "numero de familia" in col_norm or "num de familia" in col_norm or "num familia" in col_norm:
+            columna_num_fam_real = col
+        elif "descripcion de producto" in col_norm or "desc de producto" in col_norm:
+            columna_desc_prod_real = col
+
+    if not columna_desc_prod_real and len(df_productos.columns) >= 3:
+        columna_desc_prod_real = df_productos.columns[2]
+
+    renombrar_dict = {}
+    if columna_num_fam_real:
+        renombrar_dict[columna_num_fam_real] = "Numero de familia"
+    if columna_desc_prod_real:
+        renombrar_dict[columna_desc_prod_real] = "Descripcion de producto"
+        
+    if renombrar_dict:
+        df_productos = df_productos.rename(columns=renombrar_dict)
+
+    # Definir columnas visibles predeterminadas si no existen en session_state
+    if "columnas_seleccionadas" not in st.session_state:
+        columnas_base = ["Numero de familia", "Descripcion de producto"]
+        # Filtramos solo las que realmente existan en el CSV
+        st.session_state.columnas_seleccionadas = [c for c in columnas_base if c in df_productos.columns]
 
 # ==========================================
 # PANTALLA 1: LOGIN
 # ==========================================
 if st.session_state.pantalla == "login":
     st.markdown("<h1 style='text-align: center;'>🖼️</h1>", unsafe_allow_html=True)
-    st.markdown("<h2 style='text-align: center; color: #1E3A8A;'>Visualizador de Catálogo</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center; color: #000000;'>Visualizador de Catálogo</h2>", unsafe_allow_html=True)
     st.markdown("<p style='text-align: center; color: #6B7280;'>Filtra y consulta tus 15,000 productos de forma rápida.</p>", unsafe_allow_html=True)
     st.markdown("---")
 
@@ -77,129 +124,197 @@ if st.session_state.pantalla == "login":
                 st.error("Usuario o contraseña incorrectos.")
 
 # ==========================================
-# NAVEGADOR AVANZADO (PANTALLA PRINCIPAL)
+# PANTALLA 2: BÚSQUEDA MANUAL DIRECTA
+# ==========================================
+elif st.session_state.pantalla == "busqueda_manual":
+    col_nav1, col_nav2 = st.columns([8, 2])
+    with col_nav1:
+        st.markdown("<h3 style='color: #000000; margin:0;'>Búsqueda Manual Directa</h3>", unsafe_allow_html=True)
+    with col_nav2:
+        if st.button("← Volver a Esquemas", use_container_width=True):
+            st.session_state.pantalla = "resultados"
+            st.rerun()
+            
+    st.markdown("---")
+    
+    st.markdown("🔎 **Introduce los criterios de búsqueda:**")
+    
+    col_in1, col_in2 = st.columns(2)
+    with col_in1:
+        txt_codigo = st.text_input("Buscar por Código:", value=st.session_state.busqueda_codigo_tmp)
+    with col_in2:
+        txt_clave = st.text_input("Buscar por Clave:", value=st.session_state.busqueda_clave_tmp)
+    
+    col_btn1, col_btn2 = st.columns(2)
+    with col_btn1:
+        if st.button("⚡ Aplicar Filtro", use_container_width=True, type="primary"):
+            st.session_state.busqueda_codigo_tmp = txt_codigo
+            st.session_state.busqueda_clave_tmp = txt_clave
+            st.rerun()
+    with col_btn2:
+        if st.button("🧹 Limpiar Búsqueda", use_container_width=True):
+            st.session_state.busqueda_codigo_tmp = ""
+            st.session_state.busqueda_clave_tmp = ""
+            st.rerun()
+
+    st.markdown("---")
+
+    if df_productos is None:
+        st.error("⚠️ Crítico: No se pudo leer el archivo 'productos.csv'.")
+    else:
+        # CONTROL DE COLUMNAS A MOSTRAR (SHOW/HIDE)
+        with st.expander("👁️ Configurar columnas visibles en la tabla", expanded=False):
+            st.session_state.columnas_seleccionadas = st.multiselect(
+                "Selecciona las columnas que deseas visualizar:",
+                options=list(df_productos.columns),
+                default=st.session_state.columnas_seleccionadas
+            )
+
+        df_manual = df_productos.copy()
+        aplicó_filtro = False
+
+        if st.session_state.busqueda_codigo_tmp:
+            col_cod = columna_codigo_real if columna_codigo_real else df_manual.columns[0]
+            df_manual = df_manual[df_manual[col_cod].astype(str).str.contains(st.session_state.busqueda_codigo_tmp, case=False, na=False)]
+            aplicó_filtro = True
+            
+        if st.session_state.busqueda_clave_tmp:
+            col_clav = columna_clave_real if columna_clave_real else df_manual.columns[0]
+            df_manual = df_manual[df_manual[col_clav].astype(str).str.contains(st.session_state.busqueda_clave_tmp, case=False, na=False)]
+            aplicó_filtro = True
+
+        if aplicó_filtro:
+            total_filas = len(df_manual)
+            st.markdown(f"**Coincidencias encontradas:** `{total_filas}` productos")
+            
+            cols_disponibles = st.session_state.columnas_seleccionadas
+            
+            if total_filas > 0:
+                if len(cols_disponibles) > 0:
+                    st.dataframe(
+                        df_manual[cols_disponibles], 
+                        use_container_width=True, 
+                        hide_index=True,
+                        height=450
+                    )
+                else:
+                    st.warning("⚠️ Selecciona al menos una columna en el selector de arriba para visualizar los datos.")
+            else:
+                st.warning("⚠️ No se encontraron productos que coincidan con la búsqueda.")
+        else:
+            st.info("Escribe un código o clave arriba y haz clic en **Aplicar Filtro** para visualizar los resultados aquí.")
+
+# ==========================================
+# PANTALLA PRINCIPAL: ESQUEMA COMERCIAL 2017
 # ==========================================
 elif st.session_state.pantalla == "resultados":
     
-    # Barra Superior de Control
-    col_sup1, col_sup2 = st.columns([2, 8])
-    with col_sup1:
-        if st.button("Exit ⬅️", use_container_width=True):
+    # BARRA SUPERIOR
+    col_sup_izq, col_sup_der = st.columns([7, 3])
+    
+    with col_sup_izq:
+        st.markdown("<h3 style='color: #000000; font-weight: bold; margin:0;'>Esquema comercial 2017</h3>", unsafe_allow_html=True)
+
+    with col_sup_der:
+        if st.button("← Salir", use_container_width=True):
             st.session_state.pantalla = "login"
             st.rerun()
-    with col_sup2:
-        st.markdown("<h3 style='margin:0; color: #1E3A8A; font-weight: bold;'>Plataforma Corporativa de Inventario</h3>", unsafe_allow_html=True)
         
+        if st.button("🔍 Búsqueda Manual Directa", use_container_width=True):
+            st.session_state.pantalla = "busqueda_manual"
+            st.rerun()
+
     st.markdown("---")
     
     if df_productos is None:
         st.error("⚠️ Crítico: No se pudo leer el archivo 'productos.csv'.")
     else:
-        # CAMBIO 2: Inversión de columnas para Celular Primero (Tope) / PC (Izquierda)
-        # Reservamos el primer bloque para el panel de selección/búsqueda
         col_panel_filtros, col_panel_resultados = st.columns([3, 7])
         
-        # ----------------------------------------------------
-        # COLUMNA FILTROS: LO PRIMERO EN CELULAR / IZQUIERDA EN PC
-        # ----------------------------------------------------
+        # COLUMNA IZQUIERDA: SEGMENTACIÓN POR ESQUEMA
         with col_panel_filtros:
-            st.markdown("#### 📁 Segmentación por Esquema")
+            st.markdown(
+                """
+                <div class='sombra-tenue'>
+                    <h4 class='titulo-negro'>Segmentación por esquema</h4>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
             
             if columna_familia_real:
                 lista_familias = ["Todas"] + sorted(df_productos[columna_familia_real].dropna().unique().tolist())
+                idx_actual = lista_familias.index(st.session_state.filtro_familia) if st.session_state.filtro_familia in lista_familias else 0
                 
-                # CAMBIO 1: Buscador predictivo combinado con opción deslizable/scrolleable de familias
-                # Reducimos drásticamente el espacio vertical usando un st.selectbox nativo optimizado
-                # que en iPhone abre el selector táctil nativo y en PC permite buscar escribiendo.
                 seleccion_actual = st.selectbox(
-                    "Filtrar por nombre de familia:",
+                    "Selecciona una familia:",
                     options=lista_familias,
-                    index=lista_familias.index(st.session_state.filtro_familia),
-                    help="Escribe el nombre o desliza para seleccionar"
+                    index=idx_actual,
+                    label_visibility="collapsed"
                 )
                 
                 if seleccion_actual != st.session_state.filtro_familia:
                     st.session_state.filtro_familia = seleccion_actual
-                    st.session_state.pagina_actual = 0
                     st.rerun()
             else:
-                st.error("Columna 'Familia' no detectada.")
+                st.error("Columna 'Familia' no detectada en el archivo CSV.")
 
-            st.markdown("---")
-            st.markdown("🔎 **Búsqueda Manual Directa:**")
-            busqueda_codigo = st.text_input("Por Código:", value=st.session_state.get("filtro_codigo", ""))
-            busqueda_clave = st.text_input("Por Clave:", value=st.session_state.get("filtro_clave", ""))
-            
-            if st.button("⚡ Aplicar Código/Clave", use_container_width=True, type="primary"):
-                st.session_state.filtro_codigo = busqueda_codigo
-                st.session_state.filtro_clave = busqueda_clave
-                st.session_state.pagina_actual = 0
-                st.rerun()
-
-        # ----------------------------------------------------
-        # COLUMNA RESULTADOS: ABAJO EN CELULAR / DERECHA EN PC
-        # ----------------------------------------------------
+        # COLUMNA DERECHA: RESULTADOS POR FAMILIA
         with col_panel_resultados:
-            # Filtrado de Datos
             df_filtrado = df_productos.copy()
             
             if st.session_state.filtro_familia != "Todas" and columna_familia_real:
                 df_filtrado = df_filtrado[df_filtrado[columna_familia_real] == st.session_state.filtro_familia]
-                
-            if st.session_state.get("filtro_codigo"):
-                col_cod = columna_codigo_real if columna_codigo_real else df_filtrado.columns[0]
-                df_filtrado = df_filtrado[df_filtrado[col_cod].astype(str).str.contains(st.session_state.filtro_codigo, case=False, na=False)]
-                
-            if st.session_state.get("filtro_clave"):
-                col_clav = columna_clave_real if columna_clave_real else df_filtrado.columns[0]
-                df_filtrado = df_filtrado[df_filtrado[col_clav].astype(str).str.contains(st.session_state.filtro_clave, case=False, na=False)]
 
             total_filas = len(df_filtrado)
-            st.markdown(f"##### 📦 Familia activa: `{st.session_state.filtro_familia}` | Coincidencias: **{total_filas}**")
+            
+            col_inf1, col_inf2 = st.columns(2)
+            with col_inf1:
+                st.markdown(
+                    f"""
+                    <div class='sombra-tenue'>
+                        <span style='color: #6B7280; font-size: 12px;'>Familia activa</span><br>
+                        <strong style='color: #000000; font-size: 16px;'>{st.session_state.filtro_familia}</strong>
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
+            with col_inf2:
+                st.markdown(
+                    f"""
+                    <div class='sombra-tenue'>
+                        <span style='color: #6B7280; font-size: 12px;'>Coincidencias</span><br>
+                        <strong style='color: #000000; font-size: 16px;'>{total_filas} productos</strong>
+                    </div>
+                    """, 
+                    unsafe_allow_html=True
+                )
+            
+            # CONTROL DE COLUMNAS A MOSTRAR (SHOW/HIDE)
+            with st.expander("👁️ Configurar columnas visibles en la tabla", expanded=False):
+                st.session_state.columnas_seleccionadas = st.multiselect(
+                    "Añade o quita columnas del catálogo para mostrar:",
+                    options=list(df_productos.columns),
+                    default=st.session_state.columnas_seleccionadas
+                )
+
+            cols_disponibles = st.session_state.columnas_seleccionadas
             
             if total_filas > 0:
-                # Configuración automática de columnas para evitar saturación visual en la vista horizontal
-                todas_cols = df_filtrado.columns.tolist()
-                cols_vista_excel = todas_cols[:7] # Mostramos las columnas principales en modo tabla
-                
-                # Paginación compacta
-                filas_por_pagina = 30
-                if "pagina_actual" not in st.session_state:
-                    st.session_state.pagina_actual = 0
-                max_paginas = max(1, (total_filas - 1) // filas_por_pagina + 1)
-                
-                col_ant, col_pag, col_sig = st.columns([1, 2, 1])
-                with col_ant:
-                    if st.button("◀️ Ant") and st.session_state.pagina_actual > 0:
-                        st.session_state.pagina_actual -= 1
-                        st.rerun()
-                with col_pag:
-                    st.write(f"<p style='text-align: center; font-size:13px;'>Pág. {st.session_state.pagina_actual + 1} de {max_paginas}</p>", unsafe_allow_html=True)
-                with col_sig:
-                    if st.button("Sig ▶️") and st.session_state.pagina_actual < max_paginas - 1:
-                        st.session_state.pagina_actual += 1
-                        st.rerun()
-                
-                inicio = st.session_state.pagina_actual * filas_por_pagina
-                fin = inicio + filas_por_pagina
-                df_pagina = df_filtrado[cols_vista_excel].iloc[inicio:fin]
-                
-                # CAMBIO 3: Despliegue de resultados en formato horizontal estilo hoja de cálculo de Excel
-                # st.dataframe renderiza una tabla nativa e interactiva con scroll horizontal y vertical,
-                # permitiendo seleccionar celdas y ajustar anchos igual que en un Excel corporativo.
-                st.dataframe(
-                    df_pagina, 
-                    use_container_width=True, 
-                    hide_index=True
-                )
-                
-                st.markdown("---")
-                
-                # Caja compacta de copiado para WhatsApp
-                texto_compartir = f"Catálogo Express - Familia: {st.session_state.filtro_familia}\n\n"
-                for index, fila in df_pagina.head(3).iterrows():
-                    texto_compartir += f"▪️ {cols_vista_excel[0]}: {fila[cols_vista_excel[0]]} | {cols_vista_excel[1]}: {fila[cols_vista_excel[1]]} | {cols_vista_excel[2]}: {fila[cols_vista_excel[2]]}\n"
-                st.text_area("📋 Formato rápido para WhatsApp:", value=texto_compartir, height=90)
-                
+                if len(cols_disponibles) > 0:
+                    st.dataframe(
+                        df_filtrado[cols_disponibles], 
+                        use_container_width=True, 
+                        hide_index=True,
+                        height=500
+                    )
+                    
+                    texto_compartir = f"Esquema Comercial 2017 - Familia: {st.session_state.filtro_familia}\n\n"
+                    for index, fila in df_filtrado[cols_disponibles].head(3).iterrows():
+                        datos = [f"{col}: {fila[col]}" for col in cols_disponibles]
+                        texto_compartir += " | ".join(datos) + "\n"
+                    st.text_area("📋 Copiar resumen para compartir:", value=texto_compartir, height=80)
+                else:
+                    st.warning("⚠️ Selecciona al menos una columna para mostrar en el selector desplegable.")
             else:
-                st.warning("⚠️ Sin resultados. Cambia de familia o limpia las búsquedas manuales.")
+                st.warning("⚠️ No se encontraron productos para la familia seleccionada.")
