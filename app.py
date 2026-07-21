@@ -274,19 +274,12 @@ elif st.session_state.pantalla == "resultados":
             total_catalogo = len(df_productos)
             df_filtrado = df_productos.copy()
             
-            # 1. BUSCADOR GLOBAL RÁPIDO EN TODO EL ARCHIVO
-            col_busq1, col_busq2 = st.columns([8, 2])
-            with col_busq1:
-                busqueda = st.text_input(
-                    "🔤 Búsqueda rápida por palabra clave (Descripción / Código / Clave):", 
-                    value=st.session_state.busqueda_rapida,
-                    placeholder="Escribe para buscar en todo el catálogo (ej. desarmador, pinza...)"
-                )
-            with col_busq2:
-                st.write("") # Espaciador para alinear botón
-                if st.button("❌ Limpiar", use_container_width=True):
-                    st.session_state.busqueda_rapida = ""
-                    st.rerun()
+            # 1. BUSCADOR GLOBAL RÁPIDO EN TODO EL ARCHIVO (SIN BOTÓN LIMPIAR)
+            busqueda = st.text_input(
+                "🔤 Búsqueda rápida por palabra clave (Descripción / Código / Clave):", 
+                value=st.session_state.busqueda_rapida,
+                placeholder="Escribe para buscar en todo el catálogo (ej. desarmador, pinza...)"
+            )
 
             if busqueda != st.session_state.busqueda_rapida:
                 st.session_state.busqueda_rapida = busqueda
