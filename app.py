@@ -243,7 +243,6 @@ elif st.session_state.pantalla == "resultados":
             )
             
             if columna_familia_real:
-                # Opciones comenzando con indicador por defecto
                 opcion_default = "-- Selecciona una familia --"
                 familias_unicas = sorted(df_productos[columna_familia_real].dropna().unique().tolist())
                 lista_familias = [opcion_default] + familias_unicas
@@ -259,54 +258,67 @@ elif st.session_state.pantalla == "resultados":
                 
                 if seleccion_actual != st.session_state.filtro_familia:
                     st.session_state.filtro_familia = seleccion_actual
-                    st.session_state.busqueda_rapida = "" # Resetea la búsqueda rápida al cambiar de familia
                     st.rerun()
             else:
                 st.error("Columna 'Familia' no detectada en el archivo CSV.")
 
-            # Botón para limpiar selección rápida
-            if st.session_state.filtro_familia != "-- Selecciona una familia --":
-                if st.button("🔄 Reiniciar selección", use_container_width=True):
+            # Botón para reiniciar todos los filtros de este panel
+            if st.session_state.filtro_familia != "-- Selecciona una familia --" or st.session_state.busqueda_rapida != "":
+                if st.button("🔄 Limpiar todos los filtros", use_container_width=True):
                     st.session_state.filtro_familia = "-- Selecciona una familia --"
                     st.session_state.busqueda_rapida = ""
                     st.rerun()
 
-        # COLUMNA DERECHA: RESULTADOS POR FAMILIA
+        # COLUMNA DERECHA: RESULTADOS Y BUSCADOR GLOBAL
         with col_panel_resultados:
             total_catalogo = len(df_productos)
+            df_filtrado = df_productos.copy()
             
-            # Verificar si se seleccionó una familia válida
-            if st.session_state.filtro_familia != "-- Selecciona una familia --" and columna_familia_real:
-                df_filtrado = df_productos[df_productos[columna_familia_real] == st.session_state.filtro_familia].copy()
-                
-                # BUSCADOR GLOBAL RÁPIDO (MEJORA 4)
+            # 1. BUSCADOR GLOBAL RÁPIDO EN TODO EL ARCHIVO
+            col_busq1, col_busq2 = st.columns([8, 2])
+            with col_busq1:
                 busqueda = st.text_input(
-                    "🔤 Buscador rápido por palabra clave (Descripción / Código):", 
+                    "🔤 Búsqueda rápida por palabra clave (Descripción / Código / Clave):", 
                     value=st.session_state.busqueda_rapida,
-                    placeholder="Ej. desarmador, pinza, martillo..."
+                    placeholder="Escribe para buscar en todo el catálogo (ej. desarmador, pinza...)"
                 )
-                if busqueda != st.session_state.busqueda_rapida:
-                    st.session_state.busqueda_rapida = busqueda
+            with col_busq2:
+                st.write("") # Espaciador para alinear botón
+                if st.button("❌ Limpiar", use_container_width=True):
+                    st.session_state.busqueda_rapida = ""
                     st.rerun()
 
-                if st.session_state.busqueda_rapida:
-                    # Filtra en la columna de descripción o código si existen
-                    condicion = pd.Series(False, index=df_filtrado.index)
-                    for c in ["Descripcion de producto", columna_codigo_real, columna_clave_real]:
-                        if c and c in df_filtrado.columns:
-                            condicion = condicion | df_filtrado[c].astype(str).str.contains(st.session_state.busqueda_rapida, case=False, na=False)
-                    df_filtrado = df_filtrado[condicion]
+            if busqueda != st.session_state.busqueda_rapida:
+                st.session_state.busqueda_rapida = busqueda
+                st.rerun()
 
+            # Aplicar filtro de familia si seleccionó alguna
+            familia_seleccionada = st.session_state.filtro_familia != "-- Selecciona una familia --"
+            if familia_seleccionada and columna_familia_real:
+                df_filtrado = df_filtrado[df_filtrado[columna_familia_real] == st.session_state.filtro_familia]
+
+            # Aplicar filtro de palabra clave si escribió algo
+            busqueda_activa = bool(st.session_state.busqueda_rapida.strip())
+            if busqueda_activa:
+                condicion = pd.Series(False, index=df_filtrado.index)
+                for c in ["Descripcion de producto", columna_codigo_real, columna_clave_real]:
+                    if c and c in df_filtrado.columns:
+                        condicion = condicion | df_filtrado[c].astype(str).str.contains(st.session_state.busqueda_rapida, case=False, na=False)
+                df_filtrado = df_filtrado[condicion]
+
+            # EVALUAR SI DEBEMOS MOSTRAR RESULTADOS (Si hay búsqueda activa O familia seleccionada)
+            if familia_seleccionada or busqueda_activa:
                 total_filas = len(df_filtrado)
                 
-                # TARJETAS / MÉTRICAS (MEJORA 2)
+                # TARJETAS / MÉTRICAS
                 col_inf1, col_inf2, col_inf3 = st.columns(3)
                 with col_inf1:
+                    fam_texto = st.session_state.filtro_familia if familia_seleccionada else "Todas"
                     st.markdown(
                         f"""
                         <div class='sombra-tenue'>
                             <span style='color: #6B7280; font-size: 11px;'>Familia Activa</span><br>
-                            <strong style='color: #000000; font-size: 14px;'>{st.session_state.filtro_familia}</strong>
+                            <strong style='color: #000000; font-size: 14px;'>{fam_texto}</strong>
                         </div>
                         """, 
                         unsafe_allow_html=True
@@ -351,7 +363,7 @@ elif st.session_state.pantalla == "resultados":
                             height=450
                         )
                         
-                        texto_compartir = f"Esquema Comercial 2017 - Familia: {st.session_state.filtro_familia}\n\n"
+                        texto_compartir = f"Esquema Comercial 2017 - Consulta rápida\n\n"
                         for index, fila in df_filtrado[cols_disponibles].head(3).iterrows():
                             datos = [f"{col}: {fila[col]}" for col in cols_disponibles]
                             texto_compartir += " | ".join(datos) + "\n"
@@ -359,8 +371,8 @@ elif st.session_state.pantalla == "resultados":
                     else:
                         st.warning("⚠️ Selecciona al menos una columna para mostrar en el selector desplegable.")
                 else:
-                    st.warning("⚠️ No se encontraron productos con el filtro aplicado.")
+                    st.warning("⚠️ No se encontraron productos con los criterios ingresados.")
 
             else:
-                # PANTALLA INICIAL VACÍA HASTA QUE SELECCIONE UNA FAMILIA
-                st.info("👈 **Por favor, selecciona una familia en el panel de la izquierda para desplegar el catálogo.**")
+                # PANTALLA INICIAL CUANDO NO HAY BÚSQUEDA NI FAMILIA SELECCIONADA
+                st.info("💡 **Para comenzar:** Puedes escribir una palabra en la **Búsqueda rápida** de arriba para buscar en todo el catálogo, o seleccionar una **Familia** en el menú de la izquierda.")
