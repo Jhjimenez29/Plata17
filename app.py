@@ -69,6 +69,14 @@ def normalizar_texto(texto):
     texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
     return texto
 
+def limpiar_casillas_y_seleccion():
+    """Limpia los estados temporales de casillas de verificación para evitar contaminación"""
+    for key in list(st.session_state.keys()):
+        if key.startswith("chk_p_") or key.startswith("chk_m_") or key.startswith("sel_ubic_") or key.startswith("sel_ubi_m_"):
+            del st.session_state[key]
+    st.session_state.productos_seleccionados = {}
+    st.session_state.marcas_seleccionadas = {}
+
 # --- CARGA Y GUARDADO DE DATOS ---
 @st.cache_data
 def cargar_productos():
@@ -137,6 +145,9 @@ def guardar_cliente_directorio(num_cliente, nombre_cliente):
     num = str(num_cliente).strip()
     nom = str(nombre_cliente).strip()
     
+    if not num or not nom:
+        return
+        
     df_existente = cargar_catalogo_clientes()
     
     existe_exacto = False
@@ -171,6 +182,51 @@ def obtener_ultima_auditoria(nombre_cliente, num_cliente):
         elif "Fecha" in df_cliente.columns:
             return df_cliente["Fecha"].iloc[-1]
     return None
+
+def consolidar_y_guardar_visita_actual():
+    """Consolida las selecciones actuales y las guarda en el historial maestro"""
+    nombre_c = st.session_state.cliente_nombre if st.session_state.cliente_nombre else "Cliente General"
+    num_c = st.session_state.cliente_numero if st.session_state.cliente_numero else "1001"
+    
+    filas = []
+    fecha_std = datetime.date.today().strftime("%Y-%m-%d")
+    fecha_hora_actual = datetime.datetime.now().strftime("%d de %B a las %I:%M %p").lower()
+    
+    for k, v in st.session_state.productos_seleccionados.items():
+        item = {
+            "Fecha": fecha_std,
+            "Fecha_Hora": fecha_hora_actual,
+            "Numero Cliente": num_c,
+            "Nombre Cliente": nombre_c,
+            "Esquema": "Esquema Comercial 2017",
+            "Tipo Registro": "PRODUCTO",
+            "Identificador / Código": k,
+            "Descripción / Detalle": v["datos"].get("Descripcion de producto", str(v["datos"])),
+            "Ubicación": v["ubicacion"]
+        }
+        filas.append(item)
+
+    for k, v in st.session_state.marcas_seleccionadas.items():
+        item = {
+            "Fecha": fecha_std,
+            "Fecha_Hora": fecha_hora_actual,
+            "Numero Cliente": num_c,
+            "Nombre Cliente": nombre_c,
+            "Esquema": "Esquema Comercial 2017",
+            "Tipo Registro": "MARCA",
+            "Identificador / Código": k,
+            "Descripción / Detalle": f"Exhibidor / Marca: {k}",
+            "Ubicación": v["ubicacion"]
+        }
+        filas.append(item)
+
+    if filas:
+        df_rep = pd.DataFrame(filas)
+        guardar_en_historial_maestro(df_rep)
+        if st.session_state.cliente_nombre and st.session_state.cliente_numero:
+            guardar_cliente_directorio(st.session_state.cliente_numero, st.session_state.cliente_nombre)
+        return True
+    return False
 
 df_productos = cargar_productos()
 df_marcas = cargar_marcas()
@@ -396,8 +452,7 @@ elif st.session_state.pantalla == "reporte_auditoria":
                 if nombre_cliente and num_cliente:
                     guardar_cliente_directorio(num_cliente, nombre_cliente)
                 
-                st.session_state.productos_seleccionados = {}
-                st.session_state.marcas_seleccionadas = {}
+                limpiar_casillas_y_seleccion()
                 st.session_state.tipo_cliente_seleccion = "Uso libre / Consulta"
                 st.session_state.cliente_nombre = ""
                 st.session_state.cliente_numero = ""
@@ -420,8 +475,7 @@ elif st.session_state.pantalla == "reporte_auditoria":
 
         with col_acc3:
             if st.button("🗑️ Descartar Selección Actual", use_container_width=True):
-                st.session_state.productos_seleccionados = {}
-                st.session_state.marcas_seleccionadas = {}
+                limpiar_casillas_y_seleccion()
                 st.rerun()
 
 # ==========================================
@@ -536,7 +590,9 @@ elif st.session_state.pantalla == "resultados":
             index=idx_modo_cli,
             key="radio_tipo_cliente"
         )
-        st.session_state.tipo_cliente_seleccion = tipo_cli_sel
+        
+        if tipo_cli_sel != st.session_state.tipo_cliente_seleccion:
+            st.session_state.tipo_cliente_seleccion = tipo_cli_sel
 
         df_dir_clientes = cargar_catalogo_clientes()
 
@@ -544,7 +600,6 @@ elif st.session_state.pantalla == "resultados":
             if df_dir_clientes.empty:
                 st.caption("⚠️ No hay clientes registrados en el directorio. Presiona **'⋮'** para dar de alta o usa 'Cliente Nuevo'.")
             else:
-                # DICCIONARIO PARA FORMATO LIMPIO (Nombre Número)
                 dict_clientes = {}
                 opciones_combo = ["-- Seleccionar --"]
                 
@@ -560,8 +615,9 @@ elif st.session_state.pantalla == "resultados":
                 if cli_seleccionado_str != "-- Seleccionar --":
                     nom_sel, num_sel = dict_clientes[cli_seleccionado_str]
                     
-                    st.session_state.cliente_nombre = nom_sel
-                    st.session_state.cliente_numero = num_sel
+                    if st.session_state.cliente_nombre != nom_sel or st.session_state.cliente_numero != num_sel:
+                        st.session_state.cliente_nombre = nom_sel
+                        st.session_state.cliente_numero = num_sel
                     
                     ultima_aud = obtener_ultima_auditoria(nom_sel, num_sel)
                     if ultima_aud:
@@ -575,6 +631,23 @@ elif st.session_state.pantalla == "resultados":
             st.session_state.cliente_nombre = ""
             st.session_state.cliente_numero = ""
             st.caption("ℹ️ Navegación libre sin asignación de cliente.")
+
+        # BOTONES DE FINALIZACIÓN Y LIMPIEZA
+        if total_sel > 0:
+            st.markdown("---")
+            if st.button("💾 Finalizar y Guardar Visita", use_container_width=True, type="primary"):
+                exito = consolidar_y_guardar_visita_actual()
+                if exito:
+                    st.success("✅ ¡Visita guardada e historial actualizado con éxito!")
+                limpiar_casillas_y_seleccion()
+                st.session_state.cliente_nombre = ""
+                st.session_state.cliente_numero = ""
+                st.rerun()
+
+            if st.button("🧹 Limpiar Casillas del Cliente", use_container_width=True):
+                limpiar_casillas_y_seleccion()
+                st.toast("🧹 Casillas y selecciones restablecidas.")
+                st.rerun()
 
         st.markdown("---")
 
