@@ -638,7 +638,7 @@ elif st.session_state.pantalla == "resultados":
                             cond |= df_filtrado[col_val].astype(str).str.contains(st.session_state.busqueda_rapida, case=False, na=False)
                         df_filtrado = df_filtrado[cond]
 
-                    # Mostrar Tarjetas Informativas solo con filtro activo
+                    # Mostrar Tarjetas Informativas
                     c1, c2, c3 = st.columns(3)
                     with c1:
                         st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Familia Seleccionada</span><br><strong>{st.session_state.filtro_familia if fam_activa else 'Todas'}</strong></div>", unsafe_allow_html=True)
@@ -661,12 +661,38 @@ elif st.session_state.pantalla == "resultados":
                             df_filtrado[cols_a_mostrar], 
                             use_container_width=True, 
                             hide_index=True, 
-                            height=480
+                            height=280
                         )
+
+                        # --- SECCIÓN REESTABLECIDA DE CASILLAS DE SELECCIÓN ---
+                        st.markdown("---")
+                        st.markdown("#### 📌 Marcar productos de esta vista:")
+                        
+                        for idx, row in df_filtrado.head(30).iterrows():
+                            p_id = str(row.iloc[0]) if len(row) > 0 else f"PROD_{idx}"
+                            
+                            marcado = p_id in st.session_state.productos_seleccionados
+                            ubi_act = st.session_state.productos_seleccionados[p_id]["ubicacion"] if marcado else "Piso de Venta"
+
+                            cdet, cubi, cchk = st.columns([6, 3, 1])
+                            with cdet:
+                                desc = row.get("Descripcion de producto", str(row.iloc[1] if len(row) > 1 else p_id))
+                                st.write(f"**{p_id}** - {desc}")
+                            with cubi:
+                                u_sel = st.selectbox("Ubicación", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubi_act), key=f"sel_ubic_{p_id}_{idx}", label_visibility="collapsed")
+                            with cchk:
+                                chk = st.checkbox("", value=marcado, key=f"chk_p_{p_id}_{idx}")
+
+                            if chk:
+                                st.session_state.productos_seleccionados[p_id] = {"datos": row.to_dict(), "ubicacion": u_sel}
+                            elif p_id in st.session_state.productos_seleccionados:
+                                del st.session_state.productos_seleccionados[p_id]
+
+                            st.markdown("<hr style='margin:2px 0; border:0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
                     else:
                         st.warning("⚠️ No se encontraron productos con los filtros seleccionados.")
                 else:
-                    # Mensaje discreto en pantalla limpia por defecto
+                    # Pantalla limpia por defecto
                     st.info("💡 Utiliza el buscador o selecciona una familia para desplegar los productos.")
 
         else:
