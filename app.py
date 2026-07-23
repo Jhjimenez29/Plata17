@@ -500,10 +500,10 @@ elif st.session_state.pantalla == "historial":
     if df_historial.empty:
         st.info("ℹ️ Aún no hay visitas guardadas en el historial.")
     else:
-        st.markdown("#### 🔍 Filtros de Consulta")
+        st.markdown("#### 🔍 Filtros opcionales")
         col_f1, col_f2 = st.columns(2)
         
-        opcion_default = "-- Seleccionar --"
+        opcion_default = "-- Todos --"
         
         with col_f1:
             clientes_unicos = [opcion_default] + sorted(df_historial["Nombre Cliente"].dropna().unique().tolist())
@@ -513,41 +513,33 @@ elif st.session_state.pantalla == "historial":
             fechas_unicas = [opcion_default] + sorted(df_historial["Fecha"].dropna().unique().tolist(), reverse=True)
             fecha_sel = st.selectbox("Filtrar por Fecha:", options=fechas_unicas)
 
-        filtro_cliente_activo = (cliente_sel != opcion_default)
-        filtro_fecha_activo = (fecha_sel != opcion_default)
+        # Aplicar filtros de forma dinámica sin ocultar la tabla principal
+        df_h_filtrado = df_historial.copy()
+        if cliente_sel != opcion_default:
+            df_h_filtrado = df_h_filtrado[df_h_filtrado["Nombre Cliente"] == cliente_sel]
+        if fecha_sel != opcion_default:
+            df_h_filtrado = df_h_filtrado[df_h_filtrado["Fecha"] == fecha_sel]
 
-        if filtro_cliente_activo or filtro_fecha_activo:
-            df_h_filtrado = df_historial.copy()
+        st.markdown("---")
+        st.markdown(f"**Registros mostrados:** `{len(df_h_filtrado)}` filas")
+        
+        if not df_h_filtrado.empty:
+            st.dataframe(df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore"), use_container_width=True, hide_index=True, height=350)
 
-            if filtro_cliente_activo:
-                df_h_filtrado = df_h_filtrado[df_h_filtrado["Nombre Cliente"] == cliente_sel]
+            output_h = BytesIO()
+            with pd.ExcelWriter(output_h, engine='openpyxl') as writer:
+                df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore").to_excel(writer, index=False, sheet_name='Historial_Completo')
 
-            if filtro_fecha_activo:
-                df_h_filtrado = df_h_filtrado[df_h_filtrado["Fecha"] == fecha_sel]
-
-            st.markdown("---")
-            st.markdown(f"**Registros encontrados:** `{len(df_h_filtrado)}` filas")
-            
-            if not df_h_filtrado.empty:
-                st.dataframe(df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore"), use_container_width=True, hide_index=True, height=350)
-
-                output_h = BytesIO()
-                with pd.ExcelWriter(output_h, engine='openpyxl') as writer:
-                    df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore").to_excel(writer, index=False, sheet_name='Historial_Filtrado')
-
-                st.download_button(
-                    label="📥 Descargar Reporte de Consulta (Excel)",
-                    data=output_h.getvalue(),
-                    file_name=f"Reporte_Consulta_{datetime.date.today()}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    type="primary"
-                )
-            else:
-                st.warning("⚠️ No se encontraron registros con la combinación de filtros seleccionada.")
+            st.download_button(
+                label="📥 Descargar Reporte (Excel)",
+                data=output_h.getvalue(),
+                file_name=f"Reporte_Historial_{datetime.date.today()}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                type="primary"
+            )
         else:
-            st.info("💡 **Vista Limpia:** Selecciona una opción en 'Filtrar por Cliente' o 'Filtrar por Fecha' para mostrar los resultados.")
-
+            st.warning("⚠️ No se encontraron registros con los filtros seleccionados.")
 # ==========================================
 # PANTALLA PRINCIPAL: BÚSQUEDA Y SELECCIÓN
 # ==========================================
