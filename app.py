@@ -605,111 +605,96 @@ elif st.session_state.pantalla == "resultados":
     col_panel_filtros, col_panel_resultados = st.columns([3, 7])
     
     # -------------------------------------------------------------
-    # PANEL LATERAL DE FILTROS Y SEGMENTACIÓN (LADO IZQUIERDO)
+    # PANEL DE RESULTADOS Y PRODUCTOS (LADO DERECHO)
     # -------------------------------------------------------------
-    with col_panel_filtros:
-        # 1. Selección de Cliente
-        st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>👤 Selección de Cliente</h4></div>", unsafe_allow_html=True)
-        
-        opciones_modo = ["Cliente Preexistente", "Cliente Nuevo", "Uso libre / Consulta"]
-        idx_m = opciones_modo.index(st.session_state.tipo_cliente_seleccion) if st.session_state.tipo_cliente_seleccion in opciones_modo else 2
-        tipo_cli_sel = st.radio("Modo de atención:", options=opciones_modo, index=idx_m)
-        
-        if tipo_cli_sel != st.session_state.tipo_cliente_seleccion:
-            st.session_state.tipo_cliente_seleccion = tipo_cli_sel
-
-        df_dir_clientes = cargar_catalogo_clientes()
-
-        if tipo_cli_sel == "Cliente Preexistente":
-            if df_dir_clientes.empty:
-                st.caption("⚠️ No hay clientes en el directorio.")
-            else:
-                dict_clientes = {}
-                opciones_combo = ["-- Seleccionar --"]
-                for _, row in df_dir_clientes.iterrows():
-                    nom, num = str(row['Nombre Cliente']).strip(), str(row['Numero Cliente']).strip()
-                    etiqueta = f"{nom} {num}".strip()
-                    opciones_combo.append(etiqueta)
-                    dict_clientes[etiqueta] = (nom, num)
-                
-                cli_sel_str = st.selectbox("Selecciona el cliente:", options=opciones_combo)
-                if cli_sel_str != "-- Seleccionar --":
-                    nom_sel, num_sel = dict_clientes[cli_sel_str]
-                    st.session_state.cliente_nombre = nom_sel
-                    st.session_state.cliente_numero = num_sel
-                    
-                    ultima_aud = obtener_ultima_auditoria(nom_sel, num_sel)
-                    if ultima_aud:
-                        st.markdown(f"<div class='alerta-ultima-auditoria'>📌 <b>Última auditoría:</b> {ultima_aud}</div>", unsafe_allow_html=True)
-
-        elif tipo_cli_sel == "Cliente Nuevo":
-            st.session_state.cliente_nombre = st.text_input("Nombre del Cliente Nuevo:", value=st.session_state.cliente_nombre)
-            st.session_state.cliente_numero = st.text_input("Número de Cliente:", value=st.session_state.cliente_numero)
-
-        elif tipo_cli_sel == "Uso libre / Consulta":
-            st.session_state.cliente_nombre = ""
-            st.session_state.cliente_numero = ""
-
-        # Botones de Acción
-        if total_sel > 0:
-            st.markdown("---")
-            if st.button("💾 Finalizar y Guardar Visita", use_container_width=True, type="primary"):
-                if consolidar_y_guardar_visita_actual():
-                    st.success("✅ ¡Visita guardada con éxito!")
-                limpiar_casillas_y_seleccion()
-                st.session_state.cliente_nombre = ""
-                st.session_state.cliente_numero = ""
-                st.rerun()
-
-            if st.button("🧹 Limpiar Casillas del Cliente", use_container_width=True):
-                limpiar_casillas_y_seleccion()
-                st.toast("🧹 Casillas restablecidas.")
-                st.rerun()
-
-        # 2. Modo de Consulta (Vista)
-        st.markdown("---")
-        st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>Modo de Consulta</h4></div>", unsafe_allow_html=True)
-        modo_sel = st.radio("Vista:", options=["🔎 Catálogo de Productos", "🏷️ Listado de Marcas"], index=0 if st.session_state.vista_catalogo == "productos" else 1, label_visibility="collapsed")
-        
-        nuevo_m = "productos" if "Productos" in modo_sel else "marcas"
-        if nuevo_m != st.session_state.vista_catalogo:
-            st.session_state.vista_catalogo = nuevo_m
-            st.rerun()
-
-        # 3. Segmentación por Familia
+    with col_panel_resultados:
         if st.session_state.vista_catalogo == "productos":
-            st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>Segmentación</h4></div>", unsafe_allow_html=True)
-            
-            if df_productos is not None:
-                # Obtener la lista de familias disponibles
-                if columna_familia_real and columna_familia_real in df_productos.columns:
-                    lista_familias = sorted(df_productos[columna_familia_real].dropna().unique().tolist())
+            if df_productos is None:
+                st.error("⚠️ No se pudo cargar 'productos.csv'. Asegúrate de que el archivo esté en la carpeta del proyecto.")
+            else:
+                df_filtrado = df_productos.copy()
+                
+                # Caja de Búsqueda Rápida
+                busqueda = st.text_input("🔤 Búsqueda rápida:", value=st.session_state.busqueda_rapida, placeholder="Escribe código, clave o descripción...")
+
+                if busqueda != st.session_state.busqueda_rapida:
+                    st.session_state.busqueda_rapida = busqueda
+                    st.rerun()
+
+                # Aplicar Filtro de Familia
+                fam_activa = st.session_state.filtro_familia != "-- Selecciona una familia --"
+                if fam_activa and columna_familia_real and columna_familia_real in df_filtrado.columns:
+                    df_filtrado = df_filtrado[df_filtrado[columna_familia_real] == st.session_state.filtro_familia]
+
+                # Aplicar Filtro de Texto
+                if st.session_state.busqueda_rapida.strip():
+                    cond = pd.Series(False, index=df_filtrado.index)
+                    for col_val in df_filtrado.columns:
+                        cond |= df_filtrado[col_val].astype(str).str.contains(st.session_state.busqueda_rapida, case=False, na=False)
+                    df_filtrado = df_filtrado[cond]
+
+                # Mostrar Tarjetas Informativas
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Familia Seleccionada</span><br><strong>{st.session_state.filtro_familia if fam_activa else 'Todas'}</strong></div>", unsafe_allow_html=True)
+                with c2:
+                    st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Coincidencias</span><br><strong style='color:#2563EB;'>{len(df_filtrado)}</strong></div>", unsafe_allow_html=True)
+                with c3:
+                    st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Total Catálogo</span><br><strong>{len(df_productos)}</strong></div>", unsafe_allow_html=True)
+
+                # Mostrar Resultados
+                if not df_filtrado.empty:
+                    # Columnas solicitadas por defecto
+                    cols_deseadas = ["Descripcion de producto", "Numero de familia", "Familia 2017"]
+                    
+                    # Detecta las columnas que coincidan en el DataFrame
+                    cols_a_mostrar = [c for c in cols_deseadas if c in df_filtrado.columns]
+                    
+                    # Si no encuentra alguna por acento o variaciones de nombre, intenta buscar variantes típicas
+                    if "Numero de familia" not in cols_a_mostrar:
+                        var_num_fam = [c for c in df_filtrado.columns if "numero de familia" in normalizar_texto(c) or "num" in normalizar_texto(c) and "familia" in normalizar_texto(c)]
+                        if var_num_fam:
+                            cols_a_mostrar.insert(1, var_num_fam[0])
+
+                    # Muestra la tabla limpia con el icono de OJO activo en la esquina superior derecha
+                    st.dataframe(
+                        df_filtrado[cols_a_mostrar], 
+                        use_container_width=True, 
+                        hide_index=True, 
+                        height=480
+                    )
                 else:
-                    # Intenta encontrar cualquier columna adecuada
-                    posibles_cols = [c for c in df_productos.columns if "familia" in normalizar_texto(c)]
-                    if posibles_cols:
-                        columna_familia_real = posibles_cols[0]
-                        lista_familias = sorted(df_productos[columna_familia_real].dropna().unique().tolist())
-                    else:
-                        lista_familias = []
+                    st.warning("⚠️ No se encontraron productos con los filtros seleccionados.")
 
-                op_def = "-- Selecciona una familia --"
-                fams = [op_def] + lista_familias
-                
-                idx_f = fams.index(st.session_state.filtro_familia) if st.session_state.filtro_familia in fams else 0
-                sel_f = st.selectbox("Familia:", options=fams, index=idx_f, label_visibility="collapsed")
-                
-                if sel_f != st.session_state.filtro_familia:
-                    st.session_state.filtro_familia = sel_f
-                    st.rerun()
+        else:
+            st.markdown("<h4 style='color: #000000;'>🏷️ Listado de Marcas</h4>", unsafe_allow_html=True)
+            st.markdown("---")
+            if df_marcas is None:
+                st.warning("⚠️ No se cargó 'marcas.csv' o 'marcas.xlsx'.")
+            else:
+                col_m = df_marcas.columns[0]
+                for idx, row in df_marcas.iterrows():
+                    nom_m = str(row[col_m]).strip()
+                    if not nom_m or nom_m.lower() == "nan":
+                        continue
 
-            # Botón para limpiar filtros activos
-            if st.session_state.filtro_familia != "-- Selecciona una familia --" or st.session_state.busqueda_rapida != "":
-                if st.button("🔄 Limpiar Filtros", use_container_width=True):
-                    st.session_state.filtro_familia = "-- Selecciona una familia --"
-                    st.session_state.busqueda_rapida = ""
-                    st.rerun()
+                    marcado_m = nom_m in st.session_state.marcas_seleccionadas
+                    ubi_m_act = st.session_state.marcas_seleccionadas[nom_m]["ubicacion"] if marcado_m else "Piso de Venta"
 
+                    cnom, cubi, cchk = st.columns([6, 3, 1])
+                    with cnom:
+                        st.markdown(f"🏷️ **{nom_m}**")
+                    with cubi:
+                        u_m_sel = st.selectbox("Ubicación Marca", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubi_m_act), key=f"sel_ubi_m_{nom_m}_{idx}", label_visibility="collapsed")
+                    with cchk:
+                        chk_m = st.checkbox("", value=marcado_m, key=f"chk_m_{nom_m}_{idx}")
+
+                    if chk_m:
+                        st.session_state.marcas_seleccionadas[nom_m] = {"ubicacion": u_m_sel}
+                    elif nom_m in st.session_state.marcas_seleccionadas:
+                        del st.session_state.marcas_seleccionadas[nom_m]
+
+                    st.markdown("<hr style='margin:2px 0; border:0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
     # -------------------------------------------------------------
     # PANEL DE RESULTADOS Y PRODUCTOS (LADO DERECHO)
     # -------------------------------------------------------------
