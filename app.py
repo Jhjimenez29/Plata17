@@ -494,44 +494,22 @@ elif st.session_state.pantalla == "reporte_auditoria":
         col_acc1, col_acc2, col_acc3 = st.columns(3)
         
         with col_acc1:
-          # Ubica el botón de finalizar visita
-if st.button("💾 Finalizar y Guardar Visita", type="primary"):
-    # 1. Tu proceso actual de guardado
-    # ... (tu código de guardado va aquí) ...
+            if st.button("💾 Finalizar y Guardar Visita", use_container_width=True, type="primary"):
+                # 1. Guardar en el Historial Maestro
+                guardar_en_historial_maestro(df_reporte_actual, st.session_state.cliente_nombre, st.session_state.cliente_numero)
 
-    # 2. Limpieza segura del estado
-    st.session_state.busqueda_rapida = ""
-    st.session_state.filtro_familia = "-- Selecciona una familia --"
-    st.session_state.productos_seleccionados = {}
-    st.session_state.marcas_seleccionadas = {}
+                # 2. Limpieza total de selecciones y filtros
+                st.session_state.busqueda_rapida = ""
+                st.session_state.filtro_familia = "-- Selecciona una familia --"
+                st.session_state.productos_seleccionados = {}
+                st.session_state.marcas_seleccionadas = {}
+                st.session_state.cliente_nombre = ""
+                st.session_state.cliente_numero = ""
 
-    # Reinicio seguro del cliente (evita el error de StreamlitAPIException / KeyError)
-    if "cliente_seleccionado" in st.session_state:
-        del st.session_state["cliente_seleccionado"]
-
-    # 3. Notificación y recarga
-    st.toast("✅ ¡Visita guardada correctamente! La pantalla se ha limpiado.", icon="🎉")
-    st.rerun()
-
-    # Si usas un selector de cliente con estado/key:
-    if "cliente_seleccionado" in st.session_state:
-        # En lugar de asignarle un string vacío directamente si no coincide con las opciones, 
-        # borramos o reiniciamos la llave según cómo esté definido en tu app
-        st.session_state.cliente_seleccionado = None 
-
-    # 3. Notificación de éxito
-    st.toast("✅ ¡Visita guardada correctamente! La pantalla se ha limpiado.", icon="🎉")
-    
-    # 4. Recarga limpia
-    st.rerun()
-    
-    # Si tienes una variable para el cliente seleccionado, la limpiamos también
-    if "cliente_seleccionado" in st.session_state:
-        st.session_state.cliente_seleccionado = ""
-
-    # 3. Notificación y recarga para dejar la pantalla limpia
-    st.success("✅ ¡Visita guardada correctamente! La pantalla se ha limpiado para un nuevo registro.")
-    st.rerun()
+                # 3. Regresar a la vista principal limpia
+                st.session_state.pantalla = "resultados"
+                st.toast("✅ ¡Visita guardada correctamente! La pantalla se ha limpiado.", icon="🎉")
+                st.rerun()
 
         with col_acc2:
             bytes_excel = generar_excel_profesional(df_reporte_actual, titulo_reporte="REPORTE DE VISITA Y AUDITORÍA")
@@ -546,93 +524,7 @@ if st.button("💾 Finalizar y Guardar Visita", type="primary"):
         with col_acc3:
             if st.button("🗑️ Descartar Selección Actual", use_container_width=True):
                 limpiar_casillas_y_seleccion()
-                st.rerun()
-
-# --- PANTALLA: HISTORIAL GENERAL ---
-elif st.session_state.pantalla == "historial":
-    col_h1, col_h2 = st.columns([7, 3])
-    with col_h1:
-        st.markdown("<h3 style='margin:0;'>📊 Historial de Revisiones Realizadas</h3>", unsafe_allow_html=True)
-    with col_h2:
-        if st.button("← Volver a Búsqueda", use_container_width=True, type="primary"):
-            st.session_state.pantalla = "resultados"
-            st.rerun()
-
-    st.markdown("---")
-    df_historial = cargar_historial_maestro()
-
-    if df_historial.empty:
-        st.info("ℹ️ Aún no hay visitas guardadas en el historial.")
-    else:
-        st.markdown("#### 🔍 Filtros de Consulta")
-        col_f1, col_f2 = st.columns(2)
-        opcion_default = "-- Seleccionar --"
-        
-        with col_f1:
-            cliente_sel = st.selectbox("Filtrar por Cliente:", options=[opcion_default] + sorted(df_historial["Nombre Cliente"].dropna().unique().tolist()))
-        with col_f2:
-            fecha_sel = st.selectbox("Filtrar por Fecha:", options=[opcion_default] + sorted(df_historial["Fecha"].dropna().unique().tolist(), reverse=True))
-
-        filtro_cli = (cliente_sel != opcion_default)
-        filtro_fec = (fecha_sel != opcion_default)
-
-        if filtro_cli or filtro_fec:
-            df_filtrado = df_historial.copy()
-            if filtro_cli:
-                df_filtrado = df_filtrado[df_filtrado["Nombre Cliente"] == cliente_sel]
-            if filtro_fec:
-                df_filtrado = df_filtrado[df_filtrado["Fecha"] == fecha_sel]
-
-            st.markdown("---")
-            st.markdown(f"**Registros encontrados:** `{len(df_filtrado)}` filas")
-            
-            if not df_filtrado.empty:
-                st.dataframe(df_filtrado.drop(columns=["Fecha_Hora"], errors="ignore"), use_container_width=True, hide_index=True, height=350)
-                
-                bytes_excel_h = generar_excel_profesional(df_filtrado, titulo_reporte="HISTORIAL DE REVISIONES Y AUDITORÍAS")
-                st.download_button(
-                    label="📥 Descargar Historial Filtrado (Excel Pro)",
-                    data=bytes_excel_h,
-                    file_name=f"Historial_Consulta_{datetime.date.today()}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    type="primary"
-                )
-            else:
-                st.warning("⚠️ No se encontraron registros para los filtros seleccionados.")
-        else:
-            st.info("💡 Selecciona un filtro para consultar los registros guardados.")
-
-# --- PANTALLA PRINCIPAL: BÚSQUEDA Y AUDITORÍA ---
-elif st.session_state.pantalla == "resultados":
-    total_sel = len(st.session_state.productos_seleccionados) + len(st.session_state.marcas_seleccionadas)
-    
-    col_sup1, col_sup2 = st.columns([4, 6])
-    with col_sup1:
-        st.markdown("<h3 style='margin:0;'>Esquema comercial 2017</h3>", unsafe_allow_html=True)
-    with col_sup2:
-        col_b1, col_b2, col_b3, col_b4 = st.columns([3, 2.5, 1.5, 2])
-        with col_b1:
-            lbl = f"📋 Ver Visita ({total_sel})" if total_sel > 0 else "📋 Ver Visita"
-            if st.button(lbl, use_container_width=True, type="primary" if total_sel > 0 else "secondary"):
-                st.session_state.pantalla = "reporte_auditoria"
-                st.rerun()
-        with col_b2:
-            if st.button("📊 Historial", use_container_width=True):
-                st.session_state.pantalla = "historial"
-                st.rerun()
-        with col_b3:
-            if st.button("⋮", use_container_width=True, help="Menú Opciones / Clientes"):
-                st.session_state.pantalla = "gestion_clientes"
-                st.rerun()
-        with col_b4:
-            if st.button("← Salir", use_container_width=True):
-                st.session_state.pantalla = "login"
-                st.rerun()
-
-    st.markdown("---")
-    col_panel_filtros, col_panel_resultados = st.columns([3, 7])
-    
+                st.rerun()    
     # -------------------------------------------------------------
     # PANEL DE RESULTADOS Y PRODUCTOS (LADO DERECHO)
     # -------------------------------------------------------------
