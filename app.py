@@ -5,10 +5,9 @@ import pandas as pd
 import streamlit as st
 import unicodedata
 
-# Reemplaza las importaciones de openpyxl por estas 3 líneas:
+# Librerías para formato avanzado de Excel
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-# ❌ Eliminamos la línea: from openpyxl.utils.dataframe import dataframe_to_rows
 
 # ==========================================
 # 1. CONFIGURACIÓN E INICIALIZACIÓN
@@ -225,7 +224,7 @@ def consolidar_y_guardar_visita_actual():
 # 4. MOTOR DE GENERACIÓN DE EXCEL PROFESIONAL
 # ==========================================
 def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO"):
-    """Genera un archivo Excel con formato profesional sin dependencias de dataframe_to_rows"""
+    """Genera un archivo Excel con formato profesional sin requerir dataframe_to_rows"""
     wb = Workbook()
     ws = wb.active
     ws.title = "Reporte_Auditoria"
@@ -285,7 +284,7 @@ def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO
         ws.cell(row=row_idx, column=5, value=r[3]).font = fuente_meta_val
         row_idx += 1
 
-    # 3. Tabla de Datos (Inserción directa desde Pandas sin dataframe_to_rows)
+    # 3. Tabla de Datos
     start_row = 7
     df_export = df.drop(columns=["Fecha_Hora"], errors="ignore")
     
@@ -297,7 +296,7 @@ def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO
         cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
     ws.row_dimensions[start_row].height = 22
 
-    # Escribir filas usando itertuples de pandas
+    # Escribir filas directamente sin utilizar funciones deprecadas
     for r_idx, row_data in enumerate(df_export.itertuples(index=False), start=start_row + 1):
         ws.row_dimensions[r_idx].height = 20
         usar_cebra = (r_idx % 2 == 0)
@@ -321,6 +320,7 @@ def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO
     output = BytesIO()
     wb.save(output)
     return output.getvalue()
+
 # ==========================================
 # 5. CARGA DE DATOS FUENTE
 # ==========================================
