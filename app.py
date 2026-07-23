@@ -5,8 +5,17 @@ import pandas as pd
 import streamlit as st
 import unicodedata
 
-# Configuración de la página
+# Librerías para formato avanzado de Excel
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import dataframe_to_rows
+
+# ==========================================
+# 1. CONFIGURACIÓN E INICIALIZACIÓN
+# ==========================================
 st.set_page_config(page_title="Catálogo & Auditoría", page_icon="📱", layout="wide")
+
+CLAVE_SUPERVISOR = "super123"
 
 # Estilos CSS
 st.markdown("""
@@ -36,48 +45,45 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-CLAVE_SUPERVISOR = "super123"
+def inicializar_estado_sesion():
+    """Inicializa todas las variables globales de sesión"""
+    defaults = {
+        "pantalla": "login",
+        "vista_catalogo": "productos",
+        "filtro_familia": "-- Selecciona una familia --",
+        "busqueda_rapida": "",
+        "tipo_cliente_seleccion": "Uso libre / Consulta",
+        "cliente_nombre": "",
+        "cliente_numero": "",
+        "productos_seleccionados": {},
+        "marcas_seleccionadas": {}
+    }
+    for key, val in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = val
 
-# --- CONTROL DE ESTADOS DE LA SESIÓN ---
-if "pantalla" not in st.session_state:
-    st.session_state.pantalla = "login"
-if "vista_catalogo" not in st.session_state:
-    st.session_state.vista_catalogo = "productos"  # 'productos' o 'marcas'
-if "filtro_familia" not in st.session_state:
-    st.session_state.filtro_familia = "-- Selecciona una familia --"
-if "busqueda_rapida" not in st.session_state:
-    st.session_state.busqueda_rapida = ""
+inicializar_estado_sesion()
 
-# CONFIGURACIÓN DEL CLIENTE ACTUAL
-if "tipo_cliente_seleccion" not in st.session_state:
-    st.session_state.tipo_cliente_seleccion = "Uso libre / Consulta"
-if "cliente_nombre" not in st.session_state:
-    st.session_state.cliente_nombre = ""
-if "cliente_numero" not in st.session_state:
-    st.session_state.cliente_numero = ""
-
-# REGISTROS SELECCIONADOS DE LA VISITA ACTUAL
-if "productos_seleccionados" not in st.session_state:
-    st.session_state.productos_seleccionados = {}
-if "marcas_seleccionadas" not in st.session_state:
-    st.session_state.marcas_seleccionadas = {}
-
+# ==========================================
+# 2. FUNCIONES DE UTILIDAD Y LIMPIEZA
+# ==========================================
 def normalizar_texto(texto):
     if not isinstance(texto, str):
         return ""
     texto = texto.strip().lower()
-    texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
-    return texto
+    return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
 def limpiar_casillas_y_seleccion():
-    """Limpia los estados temporales de casillas de verificación para evitar contaminación"""
+    """Restablece los componentes de la interfaz y limpia la memoria temporal"""
     for key in list(st.session_state.keys()):
         if key.startswith("chk_p_") or key.startswith("chk_m_") or key.startswith("sel_ubic_") or key.startswith("sel_ubi_m_"):
             del st.session_state[key]
     st.session_state.productos_seleccionados = {}
     st.session_state.marcas_seleccionadas = {}
 
-# --- CARGA Y GUARDADO DE DATOS ---
+# ==========================================
+# 3. GESTIÓN DE ARCHIVOS Y PERSISTENCIA (CSV/DATOS)
+# ==========================================
 @st.cache_data
 def cargar_productos():
     for enc in ["utf-8", "latin1"]:
@@ -89,8 +95,7 @@ def cargar_productos():
 
 @st.cache_data
 def cargar_marcas():
-    nombres = ["marcas.csv", "Marcas.csv", "marcas.xlsx", "Marcas.xlsx"]
-    for n in nombres:
+    for n in ["marcas.csv", "Marcas.csv", "marcas.xlsx", "Marcas.xlsx"]:
         if n.endswith(".csv"):
             for enc in ["utf-8", "latin1"]:
                 try:
@@ -108,23 +113,6 @@ def cargar_marcas():
                 continue
     return None
 
-def guardar_en_historial_maestro(df_nuevas_filas):
-    archivo_historial = "historial_revisiones.csv"
-    if os.path.exists(archivo_historial):
-        df_nuevas_filas.to_csv(archivo_historial, mode='a', header=False, index=False, encoding='utf-8')
-    else:
-        df_nuevas_filas.to_csv(archivo_historial, mode='w', header=True, index=False, encoding='utf-8')
-
-def cargar_historial_maestro():
-    archivo_historial = "historial_revisiones.csv"
-    if os.path.exists(archivo_historial):
-        try:
-            return pd.read_csv(archivo_historial, encoding='utf-8')
-        except Exception:
-            return pd.DataFrame()
-    return pd.DataFrame()
-
-# GESTIÓN DEL CATÁLOGO DE CLIENTES PREEXISTENTES
 def cargar_catalogo_clientes():
     archivo = "clientes_directorio.csv"
     if os.path.exists(archivo):
@@ -134,66 +122,70 @@ def cargar_catalogo_clientes():
             df["Nombre Cliente"] = df["Nombre Cliente"].fillna("").astype(str).str.strip()
             return df
         except Exception:
-            return pd.DataFrame(columns=["Numero Cliente", "Nombre Cliente"])
+            pass
     return pd.DataFrame(columns=["Numero Cliente", "Nombre Cliente"])
 
 def guardar_catalogo_clientes_completo(df):
-    archivo = "clientes_directorio.csv"
-    df.to_csv(archivo, index=False, encoding='utf-8')
+    df.to_csv("clientes_directorio.csv", index=False, encoding='utf-8')
 
 def guardar_cliente_directorio(num_cliente, nombre_cliente):
-    num = str(num_cliente).strip()
-    nom = str(nombre_cliente).strip()
-    
+    num, nom = str(num_cliente).strip(), str(nombre_cliente).strip()
     if not num or not nom:
         return
         
     df_existente = cargar_catalogo_clientes()
-    
-    existe_exacto = False
     if not df_existente.empty:
         coincidencias = df_existente[
             (df_existente["Numero Cliente"].str.lower() == num.lower()) & 
             (df_existente["Nombre Cliente"].str.lower() == nom.lower())
         ]
         if not coincidencias.empty:
-            existe_exacto = True
+            return
             
-    if not existe_exacto:
-        nuevo_df = pd.DataFrame([{"Numero Cliente": num, "Nombre Cliente": nom}])
-        df_final = pd.concat([df_existente, nuevo_df], ignore_index=True)
-        guardar_catalogo_clientes_completo(df_final)
+    nuevo_df = pd.DataFrame([{"Numero Cliente": num, "Nombre Cliente": nom}])
+    df_final = pd.concat([df_existente, nuevo_df], ignore_index=True)
+    guardar_catalogo_clientes_completo(df_final)
+
+def cargar_historial_maestro():
+    archivo = "historial_revisiones.csv"
+    if os.path.exists(archivo):
+        try:
+            return pd.read_csv(archivo, encoding='utf-8')
+        except Exception:
+            pass
+    return pd.DataFrame()
+
+def guardar_en_historial_maestro(df_nuevas_filas):
+    archivo = "historial_revisiones.csv"
+    header = not os.path.exists(archivo)
+    df_nuevas_filas.to_csv(archivo, mode='a', header=header, index=False, encoding='utf-8')
 
 def obtener_ultima_auditoria(nombre_cliente, num_cliente):
     df_h = cargar_historial_maestro()
-    if df_h.empty or ("Nombre Cliente" not in df_h.columns and "Numero Cliente" not in df_h.columns):
+    if df_h.empty:
         return None
-    
     condicion = pd.Series(False, index=df_h.index)
     if nombre_cliente and "Nombre Cliente" in df_h.columns:
-        condicion = condicion | (df_h["Nombre Cliente"].astype(str).str.strip().str.lower() == str(nombre_cliente).strip().lower())
+        condicion |= (df_h["Nombre Cliente"].astype(str).str.strip().str.lower() == str(nombre_cliente).strip().lower())
     if num_cliente and "Numero Cliente" in df_h.columns:
-        condicion = condicion | (df_h["Numero Cliente"].astype(str).str.strip() == str(num_cliente).strip())
+        condicion |= (df_h["Numero Cliente"].astype(str).str.strip() == str(num_cliente).strip())
         
     df_cliente = df_h[condicion]
     if not df_cliente.empty:
-        if "Fecha_Hora" in df_cliente.columns:
-            return df_cliente["Fecha_Hora"].iloc[-1]
-        elif "Fecha" in df_cliente.columns:
-            return df_cliente["Fecha"].iloc[-1]
+        return df_cliente["Fecha_Hora"].iloc[-1] if "Fecha_Hora" in df_cliente.columns else df_cliente["Fecha"].iloc[-1]
     return None
 
-def consolidar_y_guardar_visita_actual():
-    """Consolida las selecciones actuales y las guarda en el historial maestro"""
-    nombre_c = st.session_state.cliente_nombre if st.session_state.cliente_nombre else "Cliente General"
-    num_c = st.session_state.cliente_numero if st.session_state.cliente_numero else "1001"
+def consolidar_visita_actual():
+    """Genera el DataFrame unificado con las selecciones de la visita"""
+    nombre_c = st.session_state.cliente_nombre or "Cliente General"
+    num_c = st.session_state.cliente_numero or "1001"
     
     filas = []
     fecha_std = datetime.date.today().strftime("%Y-%m-%d")
     fecha_hora_actual = datetime.datetime.now().strftime("%d de %B a las %I:%M %p").lower()
     
     for k, v in st.session_state.productos_seleccionados.items():
-        item = {
+        filas.append({
             "Fecha": fecha_std,
             "Fecha_Hora": fecha_hora_actual,
             "Numero Cliente": num_c,
@@ -203,11 +195,10 @@ def consolidar_y_guardar_visita_actual():
             "Identificador / Código": k,
             "Descripción / Detalle": v["datos"].get("Descripcion de producto", str(v["datos"])),
             "Ubicación": v["ubicacion"]
-        }
-        filas.append(item)
+        })
 
     for k, v in st.session_state.marcas_seleccionadas.items():
-        item = {
+        filas.append({
             "Fecha": fecha_std,
             "Fecha_Hora": fecha_hora_actual,
             "Numero Cliente": num_c,
@@ -217,21 +208,126 @@ def consolidar_y_guardar_visita_actual():
             "Identificador / Código": k,
             "Descripción / Detalle": f"Exhibidor / Marca: {k}",
             "Ubicación": v["ubicacion"]
-        }
-        filas.append(item)
+        })
 
-    if filas:
-        df_rep = pd.DataFrame(filas)
+    return pd.DataFrame(filas)
+
+def consolidar_y_guardar_visita_actual():
+    df_rep = consolidar_visita_actual()
+    if not df_rep.empty:
         guardar_en_historial_maestro(df_rep)
         if st.session_state.cliente_nombre and st.session_state.cliente_numero:
             guardar_cliente_directorio(st.session_state.cliente_numero, st.session_state.cliente_nombre)
         return True
     return False
 
+# ==========================================
+# 4. MOTOR DE GENERACIÓN DE EXCEL PROFESIONAL
+# ==========================================
+def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO"):
+    """Genera un archivo Excel con formato profesional, encabezados ejecutivos y estilos"""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Reporte_Auditoria"
+    ws.views.sheetView[0].showGridLines = True
+
+    # Estilos
+    fuente_titulo = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
+    fuente_subtitulo = Font(name="Calibri", size=11, italic=True, color="D9D9D9")
+    fuente_meta_bold = Font(name="Calibri", size=10, bold=True, color="1F497D")
+    fuente_meta_val = Font(name="Calibri", size=10, color="000000")
+    fuente_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    fuente_datos = Font(name="Calibri", size=10, color="000000")
+
+    fill_header_principal = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid") # Azul Marino
+    fill_header_tabla = PatternFill(start_color="2F5597", end_color="2F5597", fill_type="solid")     # Azul Medio
+    fill_cebra = PatternFill(start_color="F2F4F8", end_color="F2F4F8", fill_type="solid")            # Gris claro
+
+    borde_fino = Border(
+        left=Side(style='thin', color='D9D9D9'),
+        right=Side(style='thin', color='D9D9D9'),
+        top=Side(style='thin', color='D9D9D9'),
+        bottom=Side(style='thin', color='D9D9D9')
+    )
+
+    # 1. Encabezado de Portada
+    ws.merge_cells('A1:F1')
+    ws['A1'] = f"  {titulo_reporte.upper()}"
+    ws['A1'].font = fuente_titulo
+    ws['A1'].fill = fill_header_principal
+    ws['A1'].alignment = Alignment(vertical='center')
+
+    ws.merge_cells('A2:F2')
+    ws['A2'] = f"  Generado el: {datetime.datetime.now().strftime('%d/%m/%Y a las %H:%M hrs')}"
+    ws['A2'].font = fuente_subtitulo
+    ws['A2'].fill = fill_header_principal
+    ws['A2'].alignment = Alignment(vertical='center')
+
+    ws.row_dimensions[1].height = 25
+    ws.row_dimensions[2].height = 18
+
+    # 2. Resumen Metadatos del Cliente
+    nombre_cli = st.session_state.cliente_nombre or "Cliente General"
+    num_cli = st.session_state.cliente_numero or "N/A"
+    total_prod = len(df[df["Tipo Registro"] == "PRODUCTO"]) if "Tipo Registro" in df.columns else 0
+    total_marcas = len(df[df["Tipo Registro"] == "MARCA"]) if "Tipo Registro" in df.columns else 0
+
+    metadatos = [
+        ("Cliente:", nombre_cli, "Número Cliente:", num_cli),
+        ("Total Productos:", total_prod, "Total Marcas:", total_marcas)
+    ]
+
+    row_idx = 4
+    for r in metadatos:
+        ws.cell(row=row_idx, column=1, value=r[0]).font = fuente_meta_bold
+        ws.cell(row=row_idx, column=2, value=r[1]).font = fuente_meta_val
+        ws.cell(row=row_idx, column=4, value=r[2]).font = fuente_meta_bold
+        ws.cell(row=row_idx, column=5, value=r[3]).font = fuente_meta_val
+        row_idx += 1
+
+    # 3. Tabla de Datos
+    start_row = 7
+    df_export = df.drop(columns=["Fecha_Hora"], errors="ignore")
+    
+    # Escribir cabeceras
+    for col_idx, col_name in enumerate(df_export.columns, start=1):
+        cell = ws.cell(row=start_row, column=col_idx, value=str(col_name))
+        cell.font = fuente_header
+        cell.fill = fill_header_tabla
+        cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    ws.row_dimensions[start_row].height = 22
+
+    # Escribir filas
+    for r_i, row in enumerate(dataframe_to_rows(df_export, index=False, header=False), start=start_row + 1):
+        ws.row_dimensions[r_i].height = 20
+        usar_cebra = (r_i % 2 == 0)
+        for c_i, val in enumerate(row, start=1):
+            cell = ws.cell(row=r_i, column=c_i, value=val)
+            cell.font = fuente_datos
+            cell.border = borde_fino
+            cell.alignment = Alignment(vertical='center')
+            if usar_cebra:
+                cell.fill = fill_cebra
+
+    # Autoajustar ancho de columnas
+    for col in ws.columns:
+        max_len = 0
+        col_letter = col[0].column_letter
+        for cell in col:
+            if cell.row >= start_row and cell.value:
+                max_len = max(max_len, len(str(cell.value)))
+        ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
+    output = BytesIO()
+    wb.save(output)
+    return output.getvalue()
+
+# ==========================================
+# 5. CARGA DE DATOS FUENTE
+# ==========================================
 df_productos = cargar_productos()
 df_marcas = cargar_marcas()
 
-# IDENTIFICACIÓN DE COLUMNAS DE PRODUCTOS
 columna_familia_real = None
 columna_codigo_real = None
 columna_clave_real = None
@@ -270,8 +366,10 @@ if df_productos is not None:
         st.session_state.columnas_seleccionadas = [c for c in columnas_base if c in df_productos.columns]
 
 # ==========================================
-# PANTALLA 1: LOGIN
+# 6. VISTAS DE LA APLICACIÓN
 # ==========================================
+
+# --- PANTALLA: LOGIN ---
 if st.session_state.pantalla == "login":
     st.markdown("<h1 style='text-align: center;'>🖼️</h1>", unsafe_allow_html=True)
     st.markdown("<h2 style='text-align: center; color: #000000;'>Visualizador de Catálogo & Auditoría</h2>", unsafe_allow_html=True)
@@ -289,9 +387,7 @@ if st.session_state.pantalla == "login":
             else:
                 st.error("Usuario o contraseña incorrectos.")
 
-# ==========================================
-# PANTALLA DE CONFIGURACIÓN / ALTA Y EDICIÓN DE CLIENTES
-# ==========================================
+# --- PANTALLA: GESTIÓN DE CLIENTES ---
 elif st.session_state.pantalla == "gestion_clientes":
     col_g1, col_g2 = st.columns([7, 3])
     with col_g1:
@@ -302,83 +398,66 @@ elif st.session_state.pantalla == "gestion_clientes":
             st.rerun()
 
     st.markdown("---")
-
     col_alta1, col_alta2 = st.columns([4, 6])
 
     with col_alta1:
-        st.markdown("#### ➕ Registrar Nuevo Cliente / Registro")
+        st.markdown("#### ➕ Registrar Nuevo Cliente")
         with st.form("form_alta_cliente", clear_on_submit=True):
             n_cli = st.text_input("Número / Código de Cliente:")
-            nom_cli = st.text_input("Nombre / Razón Social del Cliente:")
-            btn_guardar = st.form_submit_button("💾 Guardar Registro", use_container_width=True, type="primary")
-
-            if btn_guardar:
+            nom_cli = st.text_input("Nombre / Razón Social:")
+            if st.form_submit_button("💾 Guardar Registro", use_container_width=True, type="primary"):
                 if n_cli and nom_cli:
                     guardar_cliente_directorio(n_cli, nom_cli)
                     st.success(f"✅ ¡Registro '{nom_cli}' ({n_cli}) agregado con éxito!")
                     st.rerun()
                 else:
-                    st.error("⚠️ Debes completar tanto el número como el nombre del cliente.")
+                    st.error("⚠️ Debes completar número y nombre del cliente.")
 
     with col_alta2:
         st.markdown("#### 📁 Directorio de Clientes")
         df_dir = cargar_catalogo_clientes()
-        
         if df_dir.empty:
-            st.info("ℹ️ Aún no hay clientes registrados en el directorio.")
+            st.info("ℹ️ Aún no hay clientes registrados.")
         else:
-            tab_ver, tab_editar, tab_eliminar = st.tabs(["👁️ Ver Directorio", "✏️ Editar Registro", "🗑️ Eliminar (Requiere Supervisor)"])
+            tab_ver, tab_editar, tab_eliminar = st.tabs(["👁️ Ver Directorio", "✏️ Editar Registro", "🗑️ Eliminar"])
             
             with tab_ver:
                 st.dataframe(df_dir, use_container_width=True, hide_index=True, height=280)
 
             with tab_editar:
-                opciones_clientes_edit = [f"{idx} - {row['Nombre Cliente']} {row['Numero Cliente']}" for idx, row in df_dir.iterrows()]
-                sel_edit = st.selectbox("Selecciona el cliente a modificar:", options=["-- Seleccionar --"] + opciones_clientes_edit)
-                
-                if sel_edit != "-- Seleccionar --":
-                    idx_m = int(sel_edit.split(" - ")[0])
-                    cliente_actual_row = df_dir.iloc[idx_m]
-                    
-                    with st.form("form_editar_cliente"):
-                        nuevo_num = st.text_input("Modificar Número de Cliente:", value=str(cliente_actual_row["Numero Cliente"]))
-                        nuevo_nom = st.text_input("Modificar Nombre de Cliente:", value=str(cliente_actual_row["Nombre Cliente"]))
-                        btn_aplicar_edit = st.form_submit_button("💾 Guardar Cambios", use_container_width=True, type="primary")
-                        
-                        if btn_aplicar_edit:
-                            if nuevo_num and nuevo_nom:
-                                df_dir.at[idx_m, "Numero Cliente"] = str(nuevo_num).strip()
-                                df_dir.at[idx_m, "Nombre Cliente"] = str(nuevo_nom).strip()
+                opciones = [f"{i} - {r['Nombre Cliente']} {r['Numero Cliente']}" for i, r in df_dir.iterrows()]
+                sel = st.selectbox("Selecciona cliente a modificar:", options=["-- Seleccionar --"] + opciones)
+                if sel != "-- Seleccionar --":
+                    idx = int(sel.split(" - ")[0])
+                    r = df_dir.iloc[idx]
+                    with st.form("form_edit"):
+                        num_m = st.text_input("Nuevo Número:", value=str(r["Numero Cliente"]))
+                        nom_m = st.text_input("Nuevo Nombre:", value=str(r["Nombre Cliente"]))
+                        if st.form_submit_button("💾 Guardar Cambios", use_container_width=True, type="primary"):
+                            if num_m and nom_m:
+                                df_dir.at[idx, "Numero Cliente"] = str(num_m).strip()
+                                df_dir.at[idx, "Nombre Cliente"] = str(nom_m).strip()
                                 guardar_catalogo_clientes_completo(df_dir)
-                                st.success("✅ ¡Registro actualizado exitosamente!")
+                                st.success("✅ Registro actualizado!")
                                 st.rerun()
-                            else:
-                                st.error("⚠️ Los campos no pueden quedar vacíos.")
 
             with tab_eliminar:
-                opciones_clientes_del = [f"{idx} - {row['Nombre Cliente']} {row['Numero Cliente']}" for idx, row in df_dir.iterrows()]
-                sel_del = st.selectbox("Selecciona el cliente a eliminar:", options=["-- Seleccionar --"] + opciones_clientes_del)
-                
+                opciones_del = [f"{i} - {r['Nombre Cliente']} {r['Numero Cliente']}" for i, r in df_dir.iterrows()]
+                sel_del = st.selectbox("Selecciona cliente a eliminar:", options=["-- Seleccionar --"] + opciones_del)
                 if sel_del != "-- Seleccionar --":
                     idx_d = int(sel_del.split(" - ")[0])
-                    cliente_del_row = df_dir.iloc[idx_d]
-                    
-                    st.warning(f"⚠️ Estás por eliminar el registro: **{cliente_del_row['Nombre Cliente']}** ({cliente_del_row['Numero Cliente']})")
-                    
-                    clave_sup = st.text_input("🔒 Ingresa la Clave de Supervisor para autorizar:", type="password", key="pass_sup_del")
-                    
-                    if st.button("🚨 Autorizar y Eliminar Registro", type="primary", use_container_width=True):
-                        if clave_sup == CLAVE_SUPERVISOR:
+                    st.warning(f"⚠️ Estás por eliminar: **{df_dir.iloc[idx_d]['Nombre Cliente']}**")
+                    clave = st.text_input("🔒 Clave de Supervisor:", type="password")
+                    if st.button("🚨 Confirmar Eliminación", type="primary", use_container_width=True):
+                        if clave == CLAVE_SUPERVISOR:
                             df_dir = df_dir.drop(index=idx_d).reset_index(drop=True)
                             guardar_catalogo_clientes_completo(df_dir)
-                            st.success("✅ Registro eliminado correctamente por el supervisor.")
+                            st.success("✅ Registro eliminado.")
                             st.rerun()
                         else:
-                            st.error("❌ Clave de supervisor incorrecta. Operación no autorizada.")
+                            st.error("❌ Clave incorrecta.")
 
-# ==========================================
-# PANTALLA 2: REPORTE DE LA VISITA ACTUAL
-# ==========================================
+# --- PANTALLA: REPORTE DE LA VISITA ACTUAL ---
 elif st.session_state.pantalla == "reporte_auditoria":
     col_nav1, col_nav2 = st.columns([7, 3])
     with col_nav1:
@@ -389,58 +468,23 @@ elif st.session_state.pantalla == "reporte_auditoria":
             st.rerun()
 
     st.markdown("---")
+    df_reporte_actual = consolidar_visita_actual()
 
-    total_elementos = len(st.session_state.productos_seleccionados) + len(st.session_state.marcas_seleccionadas)
-
-    if total_elementos == 0:
+    if df_reporte_actual.empty:
         st.info("ℹ️ Aún no has seleccionado productos ni marcas para este cliente.")
     else:
         st.markdown("#### 👤 Datos del Cliente / Revisión")
         col_c1, col_c2, col_c3, col_c4 = st.columns(4)
         with col_c1:
-            nombre_cliente = st.text_input("Nombre del Cliente:", value=st.session_state.cliente_nombre if st.session_state.cliente_nombre else "Cliente General")
+            st.session_state.cliente_nombre = st.text_input("Nombre del Cliente:", value=st.session_state.cliente_nombre or "Cliente General")
         with col_c2:
-            num_cliente = st.text_input("Número de Cliente:", value=st.session_state.cliente_numero if st.session_state.cliente_numero else "1001")
+            st.session_state.cliente_numero = st.text_input("Número de Cliente:", value=st.session_state.cliente_numero or "1001")
         with col_c3:
-            fecha_rev = st.date_input("Fecha de Revisión:", datetime.date.today())
+            st.date_input("Fecha de Revisión:", datetime.date.today())
         with col_c4:
-            esquema_rev = st.text_input("Esquema:", value="Esquema Comercial 2017")
+            st.text_input("Esquema:", value="Esquema Comercial 2017", disabled=True)
 
         st.markdown("---")
-
-        filas_consolidadas = []
-        fecha_hora_actual = datetime.datetime.now().strftime("%d de %B a las %I:%M %p").lower()
-        fecha_std = fecha_rev.strftime("%Y-%m-%d")
-
-        for k, v in st.session_state.productos_seleccionados.items():
-            item = {
-                "Fecha": fecha_std,
-                "Fecha_Hora": fecha_hora_actual,
-                "Numero Cliente": num_cliente,
-                "Nombre Cliente": nombre_cliente,
-                "Esquema": esquema_rev,
-                "Tipo Registro": "PRODUCTO",
-                "Identificador / Código": k,
-                "Descripción / Detalle": v["datos"].get("Descripcion de producto", str(v["datos"])),
-                "Ubicación": v["ubicacion"]
-            }
-            filas_consolidadas.append(item)
-
-        for k, v in st.session_state.marcas_seleccionadas.items():
-            item = {
-                "Fecha": fecha_std,
-                "Fecha_Hora": fecha_hora_actual,
-                "Numero Cliente": num_cliente,
-                "Nombre Cliente": nombre_cliente,
-                "Esquema": esquema_rev,
-                "Tipo Registro": "MARCA",
-                "Identificador / Código": k,
-                "Descripción / Detalle": f"Exhibidor / Marca: {k}",
-                "Ubicación": v["ubicacion"]
-            }
-            filas_consolidadas.append(item)
-
-        df_reporte_actual = pd.DataFrame(filas_consolidadas)
         st.dataframe(df_reporte_actual.drop(columns=["Fecha_Hora"], errors="ignore"), use_container_width=True, hide_index=True, height=300)
 
         st.markdown("---")
@@ -448,27 +492,21 @@ elif st.session_state.pantalla == "reporte_auditoria":
         
         with col_acc1:
             if st.button("💾 Guardar y Finalizar Visita", use_container_width=True, type="primary"):
-                guardar_en_historial_maestro(df_reporte_actual)
-                if nombre_cliente and num_cliente:
-                    guardar_cliente_directorio(num_cliente, nombre_cliente)
-                
+                if consolidar_y_guardar_visita_actual():
+                    st.success(f"✅ ¡Visita de '{st.session_state.cliente_nombre}' guardada exitosamente!")
                 limpiar_casillas_y_seleccion()
                 st.session_state.tipo_cliente_seleccion = "Uso libre / Consulta"
                 st.session_state.cliente_nombre = ""
                 st.session_state.cliente_numero = ""
-                st.success(f"✅ ¡Visita del cliente '{nombre_cliente}' guardada exitosamente!")
                 st.session_state.pantalla = "resultados"
                 st.rerun()
 
         with col_acc2:
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_reporte_actual.drop(columns=["Fecha_Hora"], errors="ignore").to_excel(writer, index=False, sheet_name='Visita_Actual')
-            
+            bytes_excel = generar_excel_profesional(df_reporte_actual, titulo_reporte="REPORTE DE VISITA Y AUDITORÍA")
             st.download_button(
-                label="📥 Descargar Excel de esta Visita",
-                data=output.getvalue(),
-                file_name=f"Visita_{num_cliente}_{datetime.date.today()}.xlsx",
+                label="📥 Descargar Reporte en Excel Pro",
+                data=bytes_excel,
+                file_name=f"Visita_{st.session_state.cliente_numero}_{datetime.date.today()}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
@@ -478,9 +516,7 @@ elif st.session_state.pantalla == "reporte_auditoria":
                 limpiar_casillas_y_seleccion()
                 st.rerun()
 
-# ==========================================
-# PANTALLA 3: HISTORIAL GENERAL DE REVISIONES
-# ==========================================
+# --- PANTALLA: HISTORIAL GENERAL ---
 elif st.session_state.pantalla == "historial":
     col_h1, col_h2 = st.columns([7, 3])
     with col_h1:
@@ -498,57 +534,45 @@ elif st.session_state.pantalla == "historial":
     else:
         st.markdown("#### 🔍 Filtros de Consulta")
         col_f1, col_f2 = st.columns(2)
-        
         opcion_default = "-- Seleccionar --"
         
         with col_f1:
-            clientes_unicos = [opcion_default] + sorted(df_historial["Nombre Cliente"].dropna().unique().tolist())
-            cliente_sel = st.selectbox("Filtrar por Cliente:", options=clientes_unicos)
-            
+            cliente_sel = st.selectbox("Filtrar por Cliente:", options=[opcion_default] + sorted(df_historial["Nombre Cliente"].dropna().unique().tolist()))
         with col_f2:
-            fechas_unicas = [opcion_default] + sorted(df_historial["Fecha"].dropna().unique().tolist(), reverse=True)
-            fecha_sel = st.selectbox("Filtrar por Fecha:", options=fechas_unicas)
+            fecha_sel = st.selectbox("Filtrar por Fecha:", options=[opcion_default] + sorted(df_historial["Fecha"].dropna().unique().tolist(), reverse=True))
 
-        filtro_cliente_activo = (cliente_sel != opcion_default)
-        filtro_fecha_activo = (fecha_sel != opcion_default)
+        filtro_cli = (cliente_sel != opcion_default)
+        filtro_fec = (fecha_sel != opcion_default)
 
-        if filtro_cliente_activo or filtro_fecha_activo:
-            df_h_filtrado = df_historial.copy()
-
-            if filtro_cliente_activo:
-                df_h_filtrado = df_h_filtrado[df_h_filtrado["Nombre Cliente"] == cliente_sel]
-
-            if filtro_fecha_activo:
-                df_h_filtrado = df_h_filtrado[df_h_filtrado["Fecha"] == fecha_sel]
+        if filtro_cli or filtro_fec:
+            df_filtrado = df_historial.copy()
+            if filtro_cli:
+                df_filtrado = df_filtrado[df_filtrado["Nombre Cliente"] == cliente_sel]
+            if filtro_fec:
+                df_filtrado = df_filtrado[df_filtrado["Fecha"] == fecha_sel]
 
             st.markdown("---")
-            st.markdown(f"**Registros encontrados:** `{len(df_h_filtrado)}` filas")
+            st.markdown(f"**Registros encontrados:** `{len(df_filtrado)}` filas")
             
-            if not df_h_filtrado.empty:
-                st.dataframe(df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore"), use_container_width=True, hide_index=True, height=350)
-
-                output_h = BytesIO()
-                with pd.ExcelWriter(output_h, engine='openpyxl') as writer:
-                    df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore").to_excel(writer, index=False, sheet_name='Historial_Filtrado')
-
+            if not df_filtrado.empty:
+                st.dataframe(df_filtrado.drop(columns=["Fecha_Hora"], errors="ignore"), use_container_width=True, hide_index=True, height=350)
+                
+                bytes_excel_h = generar_excel_profesional(df_filtrado, titulo_reporte="HISTORIAL DE REVISIONES Y AUDITORÍAS")
                 st.download_button(
-                    label="📥 Descargar Reporte de Consulta (Excel)",
-                    data=output_h.getvalue(),
-                    file_name=f"Reporte_Consulta_{datetime.date.today()}.xlsx",
+                    label="📥 Descargar Historial Filtrado (Excel Pro)",
+                    data=bytes_excel_h,
+                    file_name=f"Historial_Consulta_{datetime.date.today()}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True,
                     type="primary"
                 )
             else:
-                st.warning("⚠️ No se encontraron registros con la combinación de filtros seleccionada.")
+                st.warning("⚠️ No se encontraron registros para los filtros seleccionados.")
         else:
-            st.info("💡 **Vista Limpia:** Selecciona una opción en 'Filtrar por Cliente' o 'Filtrar por Fecha' para mostrar los resultados.")
+            st.info("💡 Selecciona un filtro para consultar los registros guardados.")
 
-# ==========================================
-# PANTALLA PRINCIPAL: BÚSQUEDA Y SELECCIÓN
-# ==========================================
+# --- PANTALLA PRINCIPAL: BÚSQUEDA Y AUDITORÍA ---
 elif st.session_state.pantalla == "resultados":
-    
     total_sel = len(st.session_state.productos_seleccionados) + len(st.session_state.marcas_seleccionadas)
     
     col_sup1, col_sup2 = st.columns([4, 6])
@@ -557,8 +581,8 @@ elif st.session_state.pantalla == "resultados":
     with col_sup2:
         col_b1, col_b2, col_b3, col_b4 = st.columns([3, 2.5, 1.5, 2])
         with col_b1:
-            lbl_rep = f"📋 Ver Visita ({total_sel})" if total_sel > 0 else "📋 Ver Visita"
-            if st.button(lbl_rep, use_container_width=True, type="primary" if total_sel > 0 else "secondary"):
+            lbl = f"📋 Ver Visita ({total_sel})" if total_sel > 0 else "📋 Ver Visita"
+            if st.button(lbl, use_container_width=True, type="primary" if total_sel > 0 else "secondary"):
                 st.session_state.pantalla = "reporte_auditoria"
                 st.rerun()
         with col_b2:
@@ -566,7 +590,7 @@ elif st.session_state.pantalla == "resultados":
                 st.session_state.pantalla = "historial"
                 st.rerun()
         with col_b3:
-            if st.button("⋮", use_container_width=True, help="Menú de Opciones / Alta de Clientes"):
+            if st.button("⋮", use_container_width=True, help="Menú Opciones / Clientes"):
                 st.session_state.pantalla = "gestion_clientes"
                 st.rerun()
         with col_b4:
@@ -575,21 +599,15 @@ elif st.session_state.pantalla == "resultados":
                 st.rerun()
 
     st.markdown("---")
-    
     col_panel_filtros, col_panel_resultados = st.columns([3, 7])
     
+    # PANEL DE CONTROL LATERAL
     with col_panel_filtros:
         st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>👤 Selección de Cliente</h4></div>", unsafe_allow_html=True)
         
-        opciones_modo_cliente = ["Cliente Preexistente", "Cliente Nuevo", "Uso libre / Consulta"]
-        idx_modo_cli = opciones_modo_cliente.index(st.session_state.tipo_cliente_seleccion) if st.session_state.tipo_cliente_seleccion in opciones_modo_cliente else 2
-        
-        tipo_cli_sel = st.radio(
-            "Modo de atención:",
-            options=opciones_modo_cliente,
-            index=idx_modo_cli,
-            key="radio_tipo_cliente"
-        )
+        opciones_modo = ["Cliente Preexistente", "Cliente Nuevo", "Uso libre / Consulta"]
+        idx_m = opciones_modo.index(st.session_state.tipo_cliente_seleccion) if st.session_state.tipo_cliente_seleccion in opciones_modo else 2
+        tipo_cli_sel = st.radio("Modo de atención:", options=opciones_modo, index=idx_m)
         
         if tipo_cli_sel != st.session_state.tipo_cliente_seleccion:
             st.session_state.tipo_cliente_seleccion = tipo_cli_sel
@@ -598,26 +616,21 @@ elif st.session_state.pantalla == "resultados":
 
         if tipo_cli_sel == "Cliente Preexistente":
             if df_dir_clientes.empty:
-                st.caption("⚠️ No hay clientes registrados en el directorio. Presiona **'⋮'** para dar de alta o usa 'Cliente Nuevo'.")
+                st.caption("⚠️ No hay clientes en el directorio.")
             else:
                 dict_clientes = {}
                 opciones_combo = ["-- Seleccionar --"]
-                
                 for _, row in df_dir_clientes.iterrows():
-                    nom = str(row['Nombre Cliente']).strip()
-                    num = str(row['Numero Cliente']).strip()
-                    etiqueta_limpia = f"{nom} {num}".strip()
-                    opciones_combo.append(etiqueta_limpia)
-                    dict_clientes[etiqueta_limpia] = (nom, num)
+                    nom, num = str(row['Nombre Cliente']).strip(), str(row['Numero Cliente']).strip()
+                    etiqueta = f"{nom} {num}".strip()
+                    opciones_combo.append(etiqueta)
+                    dict_clientes[etiqueta] = (nom, num)
                 
-                cli_seleccionado_str = st.selectbox("Selecciona el cliente:", options=opciones_combo)
-                
-                if cli_seleccionado_str != "-- Seleccionar --":
-                    nom_sel, num_sel = dict_clientes[cli_seleccionado_str]
-                    
-                    if st.session_state.cliente_nombre != nom_sel or st.session_state.cliente_numero != num_sel:
-                        st.session_state.cliente_nombre = nom_sel
-                        st.session_state.cliente_numero = num_sel
+                cli_sel_str = st.selectbox("Selecciona el cliente:", options=opciones_combo)
+                if cli_sel_str != "-- Seleccionar --":
+                    nom_sel, num_sel = dict_clientes[cli_sel_str]
+                    st.session_state.cliente_nombre = nom_sel
+                    st.session_state.cliente_numero = num_sel
                     
                     ultima_aud = obtener_ultima_auditoria(nom_sel, num_sel)
                     if ultima_aud:
@@ -630,15 +643,13 @@ elif st.session_state.pantalla == "resultados":
         elif tipo_cli_sel == "Uso libre / Consulta":
             st.session_state.cliente_nombre = ""
             st.session_state.cliente_numero = ""
-            st.caption("ℹ️ Navegación libre sin asignación de cliente.")
 
-        # BOTONES DE FINALIZACIÓN Y LIMPIEZA
+        # BOTONES DE ACCIÓN RÁPIDA
         if total_sel > 0:
             st.markdown("---")
             if st.button("💾 Finalizar y Guardar Visita", use_container_width=True, type="primary"):
-                exito = consolidar_y_guardar_visita_actual()
-                if exito:
-                    st.success("✅ ¡Visita guardada e historial actualizado con éxito!")
+                if consolidar_y_guardar_visita_actual():
+                    st.success("✅ ¡Visita guardada con éxito!")
                 limpiar_casillas_y_seleccion()
                 st.session_state.cliente_nombre = ""
                 st.session_state.cliente_numero = ""
@@ -646,187 +657,128 @@ elif st.session_state.pantalla == "resultados":
 
             if st.button("🧹 Limpiar Casillas del Cliente", use_container_width=True):
                 limpiar_casillas_y_seleccion()
-                st.toast("🧹 Casillas y selecciones restablecidas.")
+                st.toast("🧹 Casillas restablecidas.")
                 st.rerun()
 
         st.markdown("---")
-
         st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>Modo de Consulta</h4></div>", unsafe_allow_html=True)
+        modo_sel = st.radio("Vista:", options=["🔎 Catálogo de Productos", "🏷️ Listado de Marcas"], index=0 if st.session_state.vista_catalogo == "productos" else 1, label_visibility="collapsed")
         
-        modo_seleccionado = st.radio(
-            "Elige la vista deseada:",
-            options=["🔎 Catálogo de Productos", "🏷️ Listado de Marcas"],
-            index=0 if st.session_state.vista_catalogo == "productos" else 1,
-            label_visibility="collapsed"
-        )
-        
-        nuevo_modo = "productos" if "Productos" in modo_seleccionado else "marcas"
-        if nuevo_modo != st.session_state.vista_catalogo:
-            st.session_state.vista_catalogo = nuevo_modo
+        nuevo_m = "productos" if "Productos" in modo_sel else "marcas"
+        if nuevo_m != st.session_state.vista_catalogo:
+            st.session_state.vista_catalogo = nuevo_m
             st.rerun()
 
-        st.markdown("---")
-
         if st.session_state.vista_catalogo == "productos":
-            st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>Segmentación por esquema</h4></div>", unsafe_allow_html=True)
-            
+            st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>Segmentación</h4></div>", unsafe_allow_html=True)
             if columna_familia_real and df_productos is not None:
-                opcion_default = "-- Selecciona una familia --"
-                familias_unicas = sorted(df_productos[columna_familia_real].dropna().unique().tolist())
-                lista_familias = [opcion_default] + familias_unicas
+                op_def = "-- Selecciona una familia --"
+                fams = [op_def] + sorted(df_productos[columna_familia_real].dropna().unique().tolist())
+                idx_f = fams.index(st.session_state.filtro_familia) if st.session_state.filtro_familia in fams else 0
+                sel_f = st.selectbox("Familia:", options=fams, index=idx_f, label_visibility="collapsed")
                 
-                idx_actual = lista_familias.index(st.session_state.filtro_familia) if st.session_state.filtro_familia in lista_familias else 0
-                
-                seleccion_actual = st.selectbox(
-                    "Selecciona una familia:",
-                    options=lista_familias,
-                    index=idx_actual,
-                    label_visibility="collapsed"
-                )
-                
-                if seleccion_actual != st.session_state.filtro_familia:
-                    st.session_state.filtro_familia = seleccion_actual
+                if sel_f != st.session_state.filtro_familia:
+                    st.session_state.filtro_familia = sel_f
                     st.rerun()
 
             if st.session_state.filtro_familia != "-- Selecciona una familia --" or st.session_state.busqueda_rapida != "":
-                if st.button("🔄 Limpiar todos los filtros", use_container_width=True):
+                if st.button("🔄 Limpiar Filtros", use_container_width=True):
                     st.session_state.filtro_familia = "-- Selecciona una familia --"
                     st.session_state.busqueda_rapida = ""
                     st.rerun()
 
+    # PANEL DE RESULTADOS
     with col_panel_resultados:
-        
-        # MODO 1: PRODUCTOS
         if st.session_state.vista_catalogo == "productos":
             if df_productos is None:
-                st.error("⚠️ Crítico: No se pudo leer el archivo 'productos.csv'.")
+                st.error("⚠️ No se pudo cargar 'productos.csv'.")
             else:
-                total_catalogo = len(df_productos)
                 df_filtrado = df_productos.copy()
-                
-                busqueda = st.text_input(
-                    "🔤 Búsqueda rápida por palabra clave (Descripción / Código / Clave):", 
-                    value=st.session_state.busqueda_rapida,
-                    placeholder="Escribe para buscar en todo el catálogo (ej. desarmador, pinza...)"
-                )
+                busqueda = st.text_input("🔤 Búsqueda rápida:", value=st.session_state.busqueda_rapida, placeholder="Escribe para buscar...")
 
                 if busqueda != st.session_state.busqueda_rapida:
                     st.session_state.busqueda_rapida = busqueda
                     st.rerun()
 
-                familia_seleccionada = st.session_state.filtro_familia != "-- Selecciona una familia --"
-                if familia_seleccionada and columna_familia_real:
+                fam_activa = st.session_state.filtro_familia != "-- Selecciona una familia --"
+                if fam_activa and columna_familia_real:
                     df_filtrado = df_filtrado[df_filtrado[columna_familia_real] == st.session_state.filtro_familia]
 
-                busqueda_activa = bool(st.session_state.busqueda_rapida.strip())
-                if busqueda_activa:
-                    condicion = pd.Series(False, index=df_filtrado.index)
+                if st.session_state.busqueda_rapida.strip():
+                    cond = pd.Series(False, index=df_filtrado.index)
                     for c in ["Descripcion de producto", columna_codigo_real, columna_clave_real]:
                         if c and c in df_filtrado.columns:
-                            condicion = condicion | df_filtrado[c].astype(str).str.contains(st.session_state.busqueda_rapida, case=False, na=False)
-                    df_filtrado = df_filtrado[condicion]
+                            cond |= df_filtrado[c].astype(str).str.contains(st.session_state.busqueda_rapida, case=False, na=False)
+                    df_filtrado = df_filtrado[cond]
 
-                if familia_seleccionada or busqueda_activa:
-                    total_filas = len(df_filtrado)
-                    
-                    col_inf1, col_inf2, col_inf3 = st.columns(3)
-                    with col_inf1:
-                        fam_texto = st.session_state.filtro_familia if familia_seleccionada else "Todas"
-                        st.markdown(f"<div class='sombra-tenue'><span style='color: #6B7280; font-size: 11px;'>Familia Activa</span><br><strong style='color: #000000; font-size: 14px;'>{fam_texto}</strong></div>", unsafe_allow_html=True)
-                    with col_inf2:
-                        st.markdown(f"<div class='sombra-tenue'><span style='color: #6B7280; font-size: 11px;'>Coincidencias</span><br><strong style='color: #2563EB; font-size: 14px;'>{total_filas} productos</strong></div>", unsafe_allow_html=True)
-                    with col_inf3:
-                        st.markdown(f"<div class='sombra-tenue'><span style='color: #6B7280; font-size: 11px;'>Total Catálogo</span><br><strong style='color: #000000; font-size: 14px;'>{total_catalogo} productos</strong></div>", unsafe_allow_html=True)
-                    
-                    with st.expander("👁️ Configurar columnas visibles en la tabla", expanded=False):
-                        st.session_state.columnas_seleccionadas = st.multiselect(
-                            "Añade o quita columnas del catálogo para mostrar:",
-                            options=list(df_productos.columns),
-                            default=st.session_state.columnas_seleccionadas
-                        )
+                if fam_activa or bool(st.session_state.busqueda_rapida.strip()):
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Familia</span><br><strong>{st.session_state.filtro_familia if fam_activa else 'Todas'}</strong></div>", unsafe_allow_html=True)
+                    with c2:
+                        st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Coincidencias</span><br><strong style='color:#2563EB;'>{len(df_filtrado)}</strong></div>", unsafe_allow_html=True)
+                    with c3:
+                        st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Total Catálogo</span><br><strong>{len(df_productos)}</strong></div>", unsafe_allow_html=True)
 
-                    cols_disponibles = st.session_state.columnas_seleccionadas
-                    
-                    if total_filas > 0:
-                        if len(cols_disponibles) > 0:
-                            st.dataframe(df_filtrado[cols_disponibles], use_container_width=True, hide_index=True, height=300)
+                    if not df_filtrado.empty:
+                        st.dataframe(df_filtrado[st.session_state.columnas_seleccionadas], use_container_width=True, hide_index=True, height=280)
+                        
+                        st.markdown("---")
+                        st.markdown("#### 📌 Marca los productos revisados:")
+                        
+                        for idx, row in df_filtrado.head(30).iterrows():
+                            col_id = columna_codigo_real if columna_codigo_real else df_filtrado.columns[0]
+                            p_id = str(row[col_id]) if pd.notnull(row[col_id]) else f"PROD_{idx}"
                             
-                            texto_compartir = f"Esquema Comercial 2017 - Consulta rápida\n\n"
-                            for index, fila in df_filtrado[cols_disponibles].head(3).iterrows():
-                                datos = [f"{col}: {fila[col]}" for col in cols_disponibles]
-                                texto_compartir += " | ".join(datos) + "\n"
-                            st.text_area("📋 Copiar resumen para compartir:", value=texto_compartir, height=70)
+                            marcado = p_id in st.session_state.productos_seleccionados
+                            ubi_act = st.session_state.productos_seleccionados[p_id]["ubicacion"] if marcado else "Piso de Venta"
 
-                            st.markdown("---")
-                            st.markdown("#### 📌 Marca los productos encontrados para tu reporte:")
-                            
-                            df_muestra = df_filtrado.head(30)
-                            for idx, row in df_muestra.iterrows():
-                                col_id_ref = columna_codigo_real if columna_codigo_real else df_muestra.columns[0]
-                                prod_id = str(row[col_id_ref]) if pd.notnull(row[col_id_ref]) else f"PROD_{idx}"
-                                
-                                esta_marcado = prod_id in st.session_state.productos_seleccionados
-                                ubic_actual = st.session_state.productos_seleccionados[prod_id]["ubicacion"] if esta_marcado else "Piso de Venta"
+                            cdet, cubi, cchk = st.columns([6, 3, 1])
+                            with cdet:
+                                desc = row.get("Descripcion de producto", str(row.iloc[1] if len(row)>1 else ""))
+                                st.write(f"**{p_id}** - {desc}")
+                            with cubi:
+                                u_sel = st.selectbox("Ubicación", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubi_act), key=f"sel_ubic_{p_id}_{idx}", label_visibility="collapsed")
+                            with cchk:
+                                chk = st.checkbox("", value=marcado, key=f"chk_p_{p_id}_{idx}")
 
-                                col_det, col_ubi, col_chk = st.columns([6, 3, 1])
-                                
-                                with col_det:
-                                    desc_txt = row.get("Descripcion de producto", str(row.iloc[1] if len(row)>1 else ""))
-                                    st.write(f"**{prod_id}** - {desc_txt}")
-                                
-                                with col_ubi:
-                                    ubicacion_sel = st.selectbox("Ubicación", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubic_actual), key=f"sel_ubic_{prod_id}_{idx}", label_visibility="collapsed")
+                            if chk:
+                                st.session_state.productos_seleccionados[p_id] = {"datos": row.to_dict(), "ubicacion": u_sel}
+                            elif p_id in st.session_state.productos_seleccionados:
+                                del st.session_state.productos_seleccionados[p_id]
 
-                                with col_chk:
-                                    marcado = st.checkbox("", value=esta_marcado, key=f"chk_p_{prod_id}_{idx}")
-
-                                if marcado:
-                                    st.session_state.productos_seleccionados[prod_id] = {"datos": row.to_dict(), "ubicacion": ubicacion_sel}
-                                else:
-                                    if prod_id in st.session_state.productos_seleccionados:
-                                        del st.session_state.productos_seleccionados[prod_id]
-
-                                st.markdown("<hr style='margin:2px 0; border:0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
-                        else:
-                            st.warning("⚠️ Selecciona al menos una columna para mostrar.")
+                            st.markdown("<hr style='margin:2px 0; border:0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
                     else:
                         st.warning("⚠️ No se encontraron productos.")
                 else:
-                    st.info("💡 **Para comenzar:** Escribe en la **Búsqueda rápida** o selecciona una **Familia** en la izquierda.")
+                    st.info("💡 Realiza una búsqueda o selecciona una familia para comenzar.")
 
-        # MODO 2: MARCAS
         else:
             st.markdown("<h4 style='color: #000000;'>🏷️ Listado de Marcas</h4>", unsafe_allow_html=True)
             st.markdown("---")
-
             if df_marcas is None:
-                st.warning("⚠️ No se encontró el archivo 'marcas.csv' o 'marcas.xlsx'.")
+                st.warning("⚠️ No se cargó 'marcas.csv' o 'marcas.xlsx'.")
             else:
-                col_nombre_marca = df_marcas.columns[0]
-                
+                col_m = df_marcas.columns[0]
                 for idx, row in df_marcas.iterrows():
-                    nombre_marca = str(row[col_nombre_marca]).strip()
-                    if not nombre_marca or nombre_marca.lower() == "nan":
+                    nom_m = str(row[col_m]).strip()
+                    if not nom_m or nom_m.lower() == "nan":
                         continue
 
-                    esta_sel_m = nombre_marca in st.session_state.marcas_seleccionadas
-                    ubic_m_def = st.session_state.marcas_seleccionadas[nombre_marca]["ubicacion"] if esta_sel_m else "Piso de Venta"
+                    marcado_m = nom_m in st.session_state.marcas_seleccionadas
+                    ubi_m_act = st.session_state.marcas_seleccionadas[nom_m]["ubicacion"] if marcado_m else "Piso de Venta"
 
-                    col_nom, col_ubi, col_chk = st.columns([6, 3, 1])
+                    cnom, cubi, cchk = st.columns([6, 3, 1])
+                    with cnom:
+                        st.markdown(f"🏷️ **{nom_m}**")
+                    with cubi:
+                        u_m_sel = st.selectbox("Ubicación Marca", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubi_m_act), key=f"sel_ubi_m_{nom_m}_{idx}", label_visibility="collapsed")
+                    with cchk:
+                        chk_m = st.checkbox("", value=marcado_m, key=f"chk_m_{nom_m}_{idx}")
 
-                    with col_nom:
-                        st.markdown(f"🏷️ **{nombre_marca}**")
-
-                    with col_ubi:
-                        ubicacion_m_sel = st.selectbox("Ubicación Marca", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubic_m_def), key=f"sel_ubi_m_{nombre_marca}_{idx}", label_visibility="collapsed")
-
-                    with col_chk:
-                        marcado_m = st.checkbox("", value=esta_sel_m, key=f"chk_m_{nombre_marca}_{idx}")
-
-                    if marcado_m:
-                        st.session_state.marcas_seleccionadas[nombre_marca] = {"ubicacion": ubicacion_m_sel}
-                    else:
-                        if nombre_marca in st.session_state.marcas_seleccionadas:
-                            del st.session_state.marcas_seleccionadas[nombre_marca]
+                    if chk_m:
+                        st.session_state.marcas_seleccionadas[nom_m] = {"ubicacion": u_m_sel}
+                    elif nom_m in st.session_state.marcas_seleccionadas:
+                        del st.session_state.marcas_seleccionadas[nom_m]
 
                     st.markdown("<hr style='margin:2px 0; border:0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
