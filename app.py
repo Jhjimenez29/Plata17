@@ -5,7 +5,7 @@ import pandas as pd
 import streamlit as st
 import unicodedata
 
-# Configuración de la página en modo ancho
+# Configuración de la página
 st.set_page_config(page_title="Catálogo & Auditoría", page_icon="📱", layout="wide")
 
 # Estilos CSS
@@ -24,6 +24,15 @@ st.markdown("""
         font-weight: 600;
         margin: 0;
     }
+    .alerta-ultima-auditoria {
+        background-color: #FEF3C7;
+        border: 1px solid #F59E0B;
+        color: #92400E;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 13px;
+        margin-top: 8px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -36,6 +45,14 @@ if "filtro_familia" not in st.session_state:
     st.session_state.filtro_familia = "-- Selecciona una familia --"
 if "busqueda_rapida" not in st.session_state:
     st.session_state.busqueda_rapida = ""
+
+# CONFIGURACIÓN DEL CLIENTE ACTUAL
+if "tipo_cliente_seleccion" not in st.session_state:
+    st.session_state.tipo_cliente_seleccion = "Uso libre / Consulta"
+if "cliente_nombre" not in st.session_state:
+    st.session_state.cliente_nombre = ""
+if "cliente_numero" not in st.session_state:
+    st.session_state.cliente_numero = ""
 
 # REGISTROS SELECCIONADOS DE LA VISITA ACTUAL
 if "productos_seleccionados" not in st.session_state:
@@ -96,6 +113,25 @@ def cargar_historial_maestro():
         except Exception:
             return pd.DataFrame()
     return pd.DataFrame()
+
+def obtener_ultima_auditoria(nombre_cliente, num_cliente):
+    df_h = cargar_historial_maestro()
+    if df_h.empty or ("Nombre Cliente" not in df_h.columns and "Numero Cliente" not in df_h.columns):
+        return None
+    
+    condicion = pd.Series(False, index=df_h.index)
+    if nombre_cliente and "Nombre Cliente" in df_h.columns:
+        condicion = condicion | (df_h["Nombre Cliente"].astype(str).str.strip().str.lower() == str(nombre_cliente).strip().lower())
+    if num_cliente and "Numero Cliente" in df_h.columns:
+        condicion = condicion | (df_h["Numero Cliente"].astype(str).str.strip() == str(num_cliente).strip())
+        
+    df_cliente = df_h[condicion]
+    if not df_cliente.empty:
+        if "Fecha_Hora" in df_cliente.columns:
+            return df_cliente["Fecha_Hora"].iloc[-1]
+        elif "Fecha" in df_cliente.columns:
+            return df_cliente["Fecha"].iloc[-1]
+    return None
 
 df_productos = cargar_productos()
 df_marcas = cargar_marcas()
@@ -180,9 +216,9 @@ elif st.session_state.pantalla == "reporte_auditoria":
         st.markdown("#### 👤 Datos del Cliente / Revisión")
         col_c1, col_c2, col_c3, col_c4 = st.columns(4)
         with col_c1:
-            nombre_cliente = st.text_input("Nombre del Cliente:", value="Cliente General")
+            nombre_cliente = st.text_input("Nombre del Cliente:", value=st.session_state.cliente_nombre if st.session_state.cliente_nombre else "Cliente General")
         with col_c2:
-            num_cliente = st.text_input("Número de Cliente:", value="1001")
+            num_cliente = st.text_input("Número de Cliente:", value=st.session_state.cliente_numero if st.session_state.cliente_numero else "1001")
         with col_c3:
             fecha_rev = st.date_input("Fecha de Revisión:", datetime.date.today())
         with col_c4:
@@ -191,10 +227,13 @@ elif st.session_state.pantalla == "reporte_auditoria":
         st.markdown("---")
 
         filas_consolidadas = []
+        fecha_hora_actual = datetime.datetime.now().strftime("%d de %B a las %I:%M %p").lower()
+        fecha_std = fecha_rev.strftime("%Y-%m-%d")
 
         for k, v in st.session_state.productos_seleccionados.items():
             item = {
-                "Fecha": fecha_rev.strftime("%Y-%m-%d"),
+                "Fecha": fecha_std,
+                "Fecha_Hora": fecha_hora_actual,
                 "Numero Cliente": num_cliente,
                 "Nombre Cliente": nombre_cliente,
                 "Esquema": esquema_rev,
@@ -207,7 +246,8 @@ elif st.session_state.pantalla == "reporte_auditoria":
 
         for k, v in st.session_state.marcas_seleccionadas.items():
             item = {
-                "Fecha": fecha_rev.strftime("%Y-%m-%d"),
+                "Fecha": fecha_std,
+                "Fecha_Hora": fecha_hora_actual,
                 "Numero Cliente": num_cliente,
                 "Nombre Cliente": nombre_cliente,
                 "Esquema": esquema_rev,
@@ -219,7 +259,7 @@ elif st.session_state.pantalla == "reporte_auditoria":
             filas_consolidadas.append(item)
 
         df_reporte_actual = pd.DataFrame(filas_consolidadas)
-        st.dataframe(df_reporte_actual, use_container_width=True, hide_index=True, height=300)
+        st.dataframe(df_reporte_actual.drop(columns=["Fecha_Hora"], errors="ignore"), use_container_width=True, hide_index=True, height=300)
 
         st.markdown("---")
         col_acc1, col_acc2, col_acc3 = st.columns(3)
@@ -229,6 +269,9 @@ elif st.session_state.pantalla == "reporte_auditoria":
                 guardar_en_historial_maestro(df_reporte_actual)
                 st.session_state.productos_seleccionados = {}
                 st.session_state.marcas_seleccionadas = {}
+                st.session_state.tipo_cliente_seleccion = "Uso libre / Consulta"
+                st.session_state.cliente_nombre = ""
+                st.session_state.cliente_numero = ""
                 st.success(f"✅ ¡Visita del cliente '{nombre_cliente}' guardada exitosamente!")
                 st.session_state.pantalla = "resultados"
                 st.rerun()
@@ -236,7 +279,7 @@ elif st.session_state.pantalla == "reporte_auditoria":
         with col_acc2:
             output = BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                df_reporte_actual.to_excel(writer, index=False, sheet_name='Visita_Actual')
+                df_reporte_actual.drop(columns=["Fecha_Hora"], errors="ignore").to_excel(writer, index=False, sheet_name='Visita_Actual')
             
             st.download_button(
                 label="📥 Descargar Excel de esta Visita",
@@ -290,11 +333,11 @@ elif st.session_state.pantalla == "historial":
             df_h_filtrado = df_h_filtrado[df_h_filtrado["Fecha"] == fecha_sel]
 
         st.markdown(f"**Registros encontrados:** `{len(df_h_filtrado)}` filas")
-        st.dataframe(df_h_filtrado, use_container_width=True, hide_index=True, height=350)
+        st.dataframe(df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore"), use_container_width=True, hide_index=True, height=350)
 
         output_h = BytesIO()
         with pd.ExcelWriter(output_h, engine='openpyxl') as writer:
-            df_h_filtrado.to_excel(writer, index=False, sheet_name='Historial_Jornada')
+            df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore").to_excel(writer, index=False, sheet_name='Historial_Jornada')
 
         st.download_button(
             label="📥 Descargar Reporte Consolidado (Excel)",
@@ -318,7 +361,7 @@ elif st.session_state.pantalla == "resultados":
     with col_sup2:
         col_b1, col_b2, col_b3 = st.columns(3)
         with col_b1:
-            lbl_rep = f"📋 Cliente ({total_sel})" if total_sel > 0 else "📋 Ver Visita"
+            lbl_rep = f"📋 Ver Visita ({total_sel})" if total_sel > 0 else "📋 Ver Visita"
             if st.button(lbl_rep, use_container_width=True, type="primary" if total_sel > 0 else "secondary"):
                 st.session_state.pantalla = "reporte_auditoria"
                 st.rerun()
@@ -336,6 +379,55 @@ elif st.session_state.pantalla == "resultados":
     col_panel_filtros, col_panel_resultados = st.columns([3, 7])
     
     with col_panel_filtros:
+        # SECCIÓN DE SELECCIÓN DE CLIENTE EN LA PANTALLA PRINCIPAL
+        st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>👤 Selección de Cliente</h4></div>", unsafe_allow_html=True)
+        
+        opciones_modo_cliente = ["Cliente Preexistente", "Cliente Nuevo", "Uso libre / Consulta"]
+        idx_modo_cli = opciones_modo_cliente.index(st.session_state.tipo_cliente_seleccion) if st.session_state.tipo_cliente_seleccion in opciones_modo_cliente else 2
+        
+        tipo_cli_sel = st.radio(
+            "Modo de atención:",
+            options=opciones_modo_cliente,
+            index=idx_modo_cli,
+            key="radio_tipo_cliente"
+        )
+        st.session_state.tipo_cliente_seleccion = tipo_cli_sel
+
+        # Cargar lista de clientes registrados en el historial para autocompletar
+        df_h_clientes = cargar_historial_maestro()
+        lista_clientes_preexistentes = []
+        if not df_h_clientes.empty and "Nombre Cliente" in df_h_clientes.columns:
+            lista_clientes_preexistentes = sorted(df_h_clientes["Nombre Cliente"].dropna().unique().tolist())
+
+        if tipo_cli_sel == "Cliente Preexistente":
+            if len(lista_clientes_preexistentes) == 0:
+                st.caption("⚠️ No hay clientes registrados aún. Usa 'Cliente Nuevo'.")
+            else:
+                cli_seleccionado = st.selectbox("Selecciona el cliente:", options=["-- Seleccionar --"] + lista_clientes_preexistentes)
+                if cli_seleccionado != "-- Seleccionar --":
+                    st.session_state.cliente_nombre = cli_seleccionado
+                    
+                    # Obtener número de cliente si existe
+                    filtro_cli = df_h_clientes[df_h_clientes["Nombre Cliente"] == cli_seleccionado]
+                    if not filtro_cli.empty and "Numero Cliente" in filtro_cli.columns:
+                        st.session_state.cliente_numero = str(filtro_cli["Numero Cliente"].iloc[0])
+                    
+                    # Verificar si fue auditado previamente y mostrar mensaje
+                    ultima_aud = obtener_ultima_auditoria(cli_seleccionado, st.session_state.cliente_numero)
+                    if ultima_aud:
+                        st.markdown(f"<div class='alerta-ultima-auditoria'>📌 <b>Última auditoría:</b> {ultima_aud}</div>", unsafe_allow_html=True)
+
+        elif tipo_cli_sel == "Cliente Nuevo":
+            st.session_state.cliente_nombre = st.text_input("Nombre del Cliente Nuevo:", value=st.session_state.cliente_nombre)
+            st.session_state.cliente_numero = st.text_input("Número de Cliente:", value=st.session_state.cliente_numero)
+
+        elif tipo_cli_sel == "Uso libre / Consulta":
+            st.session_state.cliente_nombre = ""
+            st.session_state.cliente_numero = ""
+            st.caption("ℹ️ Navegación libre sin asignación de cliente.")
+
+        st.markdown("---")
+
         st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>Modo de Consulta</h4></div>", unsafe_allow_html=True)
         
         modo_seleccionado = st.radio(
