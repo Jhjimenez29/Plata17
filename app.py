@@ -494,16 +494,28 @@ elif st.session_state.pantalla == "reporte_auditoria":
         col_acc1, col_acc2, col_acc3 = st.columns(3)
         
         with col_acc1:
-            # Ubica el botón donde finalizas la visita (normalmente en el panel lateral o al final)
+           # Ubica el botón de finalizar visita
 if st.button("💾 Finalizar y Guardar Visita", type="primary"):
-    # 1. Tu proceso actual de guardado (no cambia nada de tu lógica de guardado)
+    # 1. Tu proceso actual de guardado (aquí va tu código)
     # ...
     
-    # 2. Limpieza de memoria temporal para el siguiente registro
+    # 2. Limpieza segura de la memoria temporal
     st.session_state.busqueda_rapida = ""
     st.session_state.filtro_familia = "-- Selecciona una familia --"
     st.session_state.productos_seleccionados = {}
     st.session_state.marcas_seleccionadas = {}
+
+    # Si usas un selector de cliente con estado/key:
+    if "cliente_seleccionado" in st.session_state:
+        # En lugar de asignarle un string vacío directamente si no coincide con las opciones, 
+        # borramos o reiniciamos la llave según cómo esté definido en tu app
+        st.session_state.cliente_seleccionado = None 
+
+    # 3. Notificación de éxito
+    st.toast("✅ ¡Visita guardada correctamente! La pantalla se ha limpiado.", icon="🎉")
+    
+    # 4. Recarga limpia
+    st.rerun()
     
     # Si tienes una variable para el cliente seleccionado, la limpiamos también
     if "cliente_seleccionado" in st.session_state:
