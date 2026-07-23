@@ -710,67 +710,111 @@ elif st.session_state.pantalla == "resultados":
             else:
                 df_filtrado = df_productos.copy()
                 
-                # Input de búsqueda rápida
-                busqueda = st.text_input(
-                    "🔤 Búsqueda rápida por palabra clave (Descripción / Código / Clave):", 
-                    key="busqueda_rapida",
-                    placeholder="Escribe para buscar en todo el catálogo..."
+                # Búsqueda rápida
+                st.session_state.busqueda_rapida = st.text_input(
+                    "🔍 Búsqueda rápida por descripción, código o clave:",
+                    value=st.session_state.busqueda_rapida,
+                    placeholder="Escribe aquí..."
                 )
-
-                # Evaluamos los criterios de filtro
-                familia_seleccionada = (
-                    st.session_state.filtro_familia != "-- Selecciona una familia --" 
-                    and st.session_state.filtro_familia != ""
-                )
-                busqueda_activa = bool(busqueda.strip())
-
-                # Si NO hay familia seleccionada ni texto de búsqueda, vista limpia
-                if not familia_seleccionada and not busqueda_activa:
-                    st.info("💡 **Vista limpia:** Selecciona una **familia** en el panel izquierdo o escribe en el buscador para desplegar los productos.")
                 
-                else:
-                    # Aplicar filtro por Familia
-                    if columna_familia_real and familia_seleccionada:
-                        df_filtrado = df_filtrado[df_filtrado[columna_familia_real] == st.session_state.filtro_familia]
+                # Aplicar filtro de familia
+                if st.session_state.filtro_familia != "-- Selecciona una familia --" and columna_familia_real:
+                    df_filtrado = df_filtrado[df_filtrado[columna_familia_real] == st.session_state.filtro_familia]
 
-                    # Aplicar filtro por Texto
-                    if busqueda_activa:
-                        busq_norm = normalizar_texto(busqueda)
-                        
-                        def coincide(row):
-                            for c in row.astype(str):
-                                if busq_norm in normalizar_texto(c):
-                                    return True
-                            return False
-                            
-                        df_filtrado = df_filtrado[df_filtrado.apply(coincide, axis=1)]
-
-                    # Definir las columnas visibles por defecto
-                    # Ajustamos los nombres según las columnas reales detectadas en el CSV
-                    cols_defecto = []
-                    if "Descripcion de producto" in df_filtrado.columns:
-                        cols_defecto.append("Descripcion de producto")
-                    if "Numero de familia" in df_filtrado.columns:
-                        cols_defecto.append("Numero de familia")
-                    if columna_familia_real and columna_familia_real in df_filtrado.columns:
-                        cols_defecto.append(columna_familia_real)
-
-                    # Desplegar contador
-                    st.markdown(f"**Productos encontrados:** `{len(df_filtrado)}` de `{len(df_productos)}`")
+                # Aplicar filtro de búsqueda
+                if st.session_state.busqueda_rapida.strip():
+                    query = normalizar_texto(st.session_state.busqueda_rapida)
                     
-                    # Renderizado del dataframe:
-                    # column_order define lo que se ve por defecto sin borrar el resto del menú flotante (👁️)
-                    st.dataframe(
-                        df_filtrado, 
-                        column_order=cols_defecto if cols_defecto else None,
-                        use_container_width=True, 
-                        hide_index=True, 
-                        height=450
-                    )
+                    def coincide_fila(row):
+                        for c in row.dropna():
+                            if query in normalizar_texto(str(c)):
+                                return True
+                        return False
+                        
+                    df_filtrado = df_filtrado[df_filtrado.apply(coincide_fila, axis=1)]
+
+                st.caption(f"Mostrando **{len(df_filtrado)}** productos")
+                st.markdown("---")
+
+                # Despliegue de Productos
+                col_ubi_opciones = ["Mostrador / Anaquel", "Bodega", "Exhibidor", "Fuera de Servicio"]
+
+                for idx, row in df_filtrado.iterrows():
+                    cod_id = str(row.get(columna_codigo_real if columna_codigo_real else "Numero de familia", idx))
+                    desc_prod = str(row.get("Descripcion de producto", str(row.iloc[0])))
+                    
+                    key_chk = f"chk_p_{cod_id}_{idx}"
+                    key_sel = f"sel_ubic_{cod_id}_{idx}"
+
+                    esta_sel = cod_id in st.session_state.productos_seleccionados
+                    
+                    c_check, c_desc, c_ubi = st.columns([1, 6, 3])
+
+                    with c_check:
+                        chk_val = st.checkbox("", value=esta_sel, key=key_chk)
+
+                    with c_desc:
+                        st.markdown(f"**{desc_prod}**")
+                        if columna_codigo_real and columna_codigo_real in row:
+                            st.caption(f"Código: `{row[columna_codigo_real]}`")
+
+                    with c_ubi:
+                        val_ubi_def = st.session_state.productos_seleccionados[cod_id]["ubicacion"] if esta_sel else col_ubi_opciones[0]
+                        idx_def = col_ubi_opciones.index(val_ubi_def) if val_ubi_def in col_ubi_opciones else 0
+                        
+                        ubi_val = st.selectbox("Ubicación", options=col_ubi_opciones, index=idx_def, key=key_sel, label_visibility="collapsed")
+
+                    # Actualización de Estado
+                    if chk_val:
+                        st.session_state.productos_seleccionados[cod_id] = {
+                            "datos": row.to_dict(),
+                            "ubicacion": ubi_val
+                        }
+                    else:
+                        if cod_id in st.session_state.productos_seleccionados:
+                            del st.session_state.productos_seleccionados[cod_id]
+
+                    st.markdown("<hr style='margin: 4px 0;'>", unsafe_allow_html=True)
+
         # MODO 2: MARCAS
-        else:
-            if df_marcas is None:
-                st.error("⚠️ Crítico: No se pudo leer el archivo de marcas.")
+        elif st.session_state.vista_catalogo == "marcas":
+            if df_marcas is None or df_marcas.empty:
+                st.warning("⚠️ No se encontraron datos en 'marcas.csv' o 'marcas.xlsx'.")
             else:
-                st.markdown(f"**Marcas/Exhibidores registrados:** `{len(df_marcas)}`")
-                st.dataframe(df_marcas, use_container_width=True, hide_index=True, height=450)
+                st.markdown("### 🏷️ Catálogo de Marcas y Exhibidores")
+                
+                col_ubi_opciones = ["Mostrador / Anaquel", "Bodega", "Exhibidor", "Fuera de Servicio"]
+                col_marca = df_marcas.columns[0]  # Se asume que la primera columna contiene el nombre de la marca/exhibidor
+
+                for idx, row in df_marcas.iterrows():
+                    nombre_marca = str(row[col_marca]).strip()
+                    key_chk_m = f"chk_m_{idx}"
+                    key_sel_m = f"sel_ubi_m_{idx}"
+
+                    esta_sel_m = nombre_marca in st.session_state.marcas_seleccionadas
+
+                    c_check, c_desc, c_ubi = st.columns([1, 6, 3])
+
+                    with c_check:
+                        chk_val_m = st.checkbox("", value=esta_sel_m, key=key_chk_m)
+
+                    with c_desc:
+                        st.markdown(f"🏷️ **{nombre_marca}**")
+
+                    with c_ubi:
+                        val_ubi_def_m = st.session_state.marcas_seleccionadas[nombre_marca]["ubicacion"] if esta_sel_m else col_ubi_opciones[0]
+                        idx_def_m = col_ubi_opciones.index(val_ubi_def_m) if val_ubi_def_m in col_ubi_opciones else 0
+                        
+                        ubi_val_m = st.selectbox("Ubicación Marca", options=col_ubi_opciones, index=idx_def_m, key=key_sel_m, label_visibility="collapsed")
+
+                    # Actualización de Estado para Marcas
+                    if chk_val_m:
+                        st.session_state.marcas_seleccionadas[nombre_marca] = {
+                            "datos": row.to_dict(),
+                            "ubicacion": ubi_val_m
+                        }
+                    else:
+                        if nombre_marca in st.session_state.marcas_seleccionadas:
+                            del st.session_state.marcas_seleccionadas[nombre_marca]
+
+                    st.markdown("<hr style='margin: 4px 0;'>", unsafe_allow_html=True)
