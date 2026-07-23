@@ -36,6 +36,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+CLAVE_SUPERVISOR = "super123"
+
 # --- CONTROL DE ESTADOS DE LA SESIÓN ---
 if "pantalla" not in st.session_state:
     st.session_state.pantalla = "login"
@@ -119,24 +121,38 @@ def cargar_catalogo_clientes():
     archivo = "clientes_directorio.csv"
     if os.path.exists(archivo):
         try:
-            return pd.read_csv(archivo, encoding='utf-8')
+            df = pd.read_csv(archivo, encoding='utf-8', dtype=str)
+            df["Numero Cliente"] = df["Numero Cliente"].fillna("").astype(str).str.strip()
+            df["Nombre Cliente"] = df["Nombre Cliente"].fillna("").astype(str).str.strip()
+            return df
         except Exception:
             return pd.DataFrame(columns=["Numero Cliente", "Nombre Cliente"])
     return pd.DataFrame(columns=["Numero Cliente", "Nombre Cliente"])
 
-def guardar_cliente_directorio(num_cliente, nombre_cliente):
+def guardar_catalogo_clientes_completo(df):
     archivo = "clientes_directorio.csv"
-    nuevo_df = pd.DataFrame([{"Numero Cliente": str(num_cliente).strip(), "Nombre Cliente": str(nombre_cliente).strip()}])
+    df.to_csv(archivo, index=False, encoding='utf-8')
+
+def guardar_cliente_directorio(num_cliente, nombre_cliente):
+    num = str(num_cliente).strip()
+    nom = str(nombre_cliente).strip()
     
-    if os.path.exists(archivo):
-        df_existente = pd.read_csv(archivo, encoding='utf-8')
-        # Evitar duplicados
-        df_existente = df_existente[df_existente["Nombre Cliente"].astype(str).str.lower() != str(nombre_cliente).strip().lower()]
+    df_existente = cargar_catalogo_clientes()
+    
+    # Validar si exactamente la misma pareja (Número + Nombre) ya existe
+    existe_exacto = False
+    if not df_existente.empty:
+        coincidencias = df_existente[
+            (df_existente["Numero Cliente"].str.lower() == num.lower()) & 
+            (df_existente["Nombre Cliente"].str.lower() == nom.lower())
+        ]
+        if not coincidencias.empty:
+            existe_exacto = True
+            
+    if not existe_exacto:
+        nuevo_df = pd.DataFrame([{"Numero Cliente": num, "Nombre Cliente": nom}])
         df_final = pd.concat([df_existente, nuevo_df], ignore_index=True)
-    else:
-        df_final = nuevo_df
-        
-    df_final.to_csv(archivo, index=False, encoding='utf-8')
+        guardar_catalogo_clientes_completo(df_final)
 
 def obtener_ultima_auditoria(nombre_cliente, num_cliente):
     df_h = cargar_historial_maestro()
@@ -219,12 +235,12 @@ if st.session_state.pantalla == "login":
                 st.error("Usuario o contraseña incorrectos.")
 
 # ==========================================
-# PANTALLA DE CONFIGURACIÓN / ALTA DE CLIENTES (ACCESO DESDE MENÚ)
+# PANTALLA DE CONFIGURACIÓN / ALTA Y EDICIÓN DE CLIENTES
 # ==========================================
 elif st.session_state.pantalla == "gestion_clientes":
     col_g1, col_g2 = st.columns([7, 3])
     with col_g1:
-        st.markdown("<h3 style='margin:0;'>👥 Alta y Gestión de Clientes Preexistentes</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='margin:0;'>👥 Directorio, Alta y Modificación de Clientes</h3>", unsafe_allow_html=True)
     with col_g2:
         if st.button("← Volver a Búsqueda", use_container_width=True, type="primary"):
             st.session_state.pantalla = "resultados"
@@ -232,29 +248,78 @@ elif st.session_state.pantalla == "gestion_clientes":
 
     st.markdown("---")
 
-    col_alta1, col_alta2 = st.columns(2)
+    col_alta1, col_alta2 = st.columns([4, 6])
 
     with col_alta1:
-        st.markdown("#### ➕ Registrar Cliente Nuevo")
+        st.markdown("#### ➕ Registrar Nuevo Cliente / Registro")
         with st.form("form_alta_cliente", clear_on_submit=True):
             n_cli = st.text_input("Número / Código de Cliente:")
             nom_cli = st.text_input("Nombre / Razón Social del Cliente:")
-            btn_guardar = st.form_submit_button("💾 Guardar Cliente", use_container_width=True, type="primary")
+            btn_guardar = st.form_submit_button("💾 Guardar Registro", use_container_width=True, type="primary")
 
             if btn_guardar:
                 if n_cli and nom_cli:
                     guardar_cliente_directorio(n_cli, nom_cli)
-                    st.success(f"✅ ¡Cliente '{nom_cli}' dado de alta exitosamente!")
+                    st.success(f"✅ ¡Registro '{nom_cli}' ({n_cli}) agregado con éxito!")
+                    st.rerun()
                 else:
                     st.error("⚠️ Debes completar tanto el número como el nombre del cliente.")
 
     with col_alta2:
-        st.markdown("#### 📁 Directorio Actual de Clientes")
+        st.markdown("#### 📁 Directorio de Clientes")
         df_dir = cargar_catalogo_clientes()
-        if not df_dir.empty:
-            st.dataframe(df_dir, use_container_width=True, hide_index=True, height=250)
-        else:
+        
+        if df_dir.empty:
             st.info("ℹ️ Aún no hay clientes registrados en el directorio.")
+        else:
+            tab_ver, tab_editar, tab_eliminar = st.tabs(["👁️ Ver Directorio", "✏️ Editar Registro", "🗑️ Eliminar (Requiere Supervisor)"])
+            
+            with tab_ver:
+                st.dataframe(df_dir, use_container_width=True, hide_index=True, height=280)
+
+            with tab_editar:
+                opciones_clientes_edit = [f"{idx} - {row['Nombre Cliente']} (N°: {row['Numero Cliente']})" for idx, row in df_dir.iterrows()]
+                sel_edit = st.selectbox("Selecciona el cliente a modificar:", options=["-- Seleccionar --"] + opciones_clientes_edit)
+                
+                if sel_edit != "-- Seleccionar --":
+                    idx_m = int(sel_edit.split(" - ")[0])
+                    cliente_actual_row = df_dir.iloc[idx_m]
+                    
+                    with st.form("form_editar_cliente"):
+                        nuevo_num = st.text_input("Modificar Número de Cliente:", value=str(cliente_actual_row["Numero Cliente"]))
+                        nuevo_nom = st.text_input("Modificar Nombre de Cliente:", value=str(cliente_actual_row["Nombre Cliente"]))
+                        btn_aplicar_edit = st.form_submit_button("💾 Guardar Cambios", use_container_width=True, type="primary")
+                        
+                        if btn_aplicar_edit:
+                            if nuevo_num and nuevo_nom:
+                                df_dir.at[idx_m, "Numero Cliente"] = str(nuevo_num).strip()
+                                df_dir.at[idx_m, "Nombre Cliente"] = str(nuevo_nom).strip()
+                                guardar_catalogo_clientes_completo(df_dir)
+                                st.success("✅ ¡Registro actualizado exitosamente!")
+                                st.rerun()
+                            else:
+                                st.error("⚠️ Los campos no pueden quedar vacíos.")
+
+            with tab_eliminar:
+                opciones_clientes_del = [f"{idx} - {row['Nombre Cliente']} (N°: {row['Numero Cliente']})" for idx, row in df_dir.iterrows()]
+                sel_del = st.selectbox("Selecciona el cliente a eliminar:", options=["-- Seleccionar --"] + opciones_clientes_del)
+                
+                if sel_del != "-- Seleccionar --":
+                    idx_d = int(sel_del.split(" - ")[0])
+                    cliente_del_row = df_dir.iloc[idx_d]
+                    
+                    st.warning(f"⚠️ Estás por eliminar el registro: **{cliente_del_row['Nombre Cliente']}** (N°: {cliente_del_row['Numero Cliente']})")
+                    
+                    clave_sup = st.text_input("🔒 Ingresa la Clave de Supervisor para autorizar:", type="password", key="pass_sup_del")
+                    
+                    if st.button("🚨 Autorizar y Eliminar Registro", type="primary", use_container_width=True):
+                        if clave_sup == CLAVE_SUPERVISOR:
+                            df_dir = df_dir.drop(index=idx_d).reset_index(drop=True)
+                            guardar_catalogo_clientes_completo(df_dir)
+                            st.success("✅ Registro eliminado correctamente por el supervisor.")
+                            st.rerun()
+                        else:
+                            st.error("❌ Clave de supervisor incorrecta. Operación no autorizada.")
 
 # ==========================================
 # PANTALLA 2: REPORTE DE LA VISITA ACTUAL
@@ -329,7 +394,6 @@ elif st.session_state.pantalla == "reporte_auditoria":
         with col_acc1:
             if st.button("💾 Guardar y Finalizar Visita", use_container_width=True, type="primary"):
                 guardar_en_historial_maestro(df_reporte_actual)
-                # Guardar también al cliente en el directorio si era nuevo
                 if nombre_cliente and num_cliente:
                     guardar_cliente_directorio(num_cliente, nombre_cliente)
                 
@@ -362,7 +426,7 @@ elif st.session_state.pantalla == "reporte_auditoria":
                 st.rerun()
 
 # ==========================================
-# PANTALLA 3: HISTORIAL GENERAL DE REVISIONES (VISTA LIMPIA)
+# PANTALLA 3: HISTORIAL GENERAL DE REVISIONES
 # ==========================================
 elif st.session_state.pantalla == "historial":
     col_h1, col_h2 = st.columns([7, 3])
@@ -449,7 +513,6 @@ elif st.session_state.pantalla == "resultados":
                 st.session_state.pantalla = "historial"
                 st.rerun()
         with col_b3:
-            # BOTÓN TIPO MENÚ DE 3 PUNTOS PARA CONFIGURACIÓN Y DAR DE ALTA CLIENTES
             if st.button("⋮", use_container_width=True, help="Menú de Opciones / Alta de Clientes"):
                 st.session_state.pantalla = "gestion_clientes"
                 st.rerun()
@@ -463,7 +526,6 @@ elif st.session_state.pantalla == "resultados":
     col_panel_filtros, col_panel_resultados = st.columns([3, 7])
     
     with col_panel_filtros:
-        # SECCIÓN DE SELECCIÓN DE CLIENTE EN LA PANTALLA PRINCIPAL
         st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>👤 Selección de Cliente</h4></div>", unsafe_allow_html=True)
         
         opciones_modo_cliente = ["Cliente Preexistente", "Cliente Nuevo", "Uso libre / Consulta"]
@@ -477,42 +539,24 @@ elif st.session_state.pantalla == "resultados":
         )
         st.session_state.tipo_cliente_seleccion = tipo_cli_sel
 
-        # Cargar clientes combinando historial + directorio de clientes
-        df_h_clientes = cargar_historial_maestro()
         df_dir_clientes = cargar_catalogo_clientes()
-        
-        set_clientes = set()
-        if not df_h_clientes.empty and "Nombre Cliente" in df_h_clientes.columns:
-            set_clientes.update(df_h_clientes["Nombre Cliente"].dropna().unique().tolist())
-        if not df_dir_clientes.empty and "Nombre Cliente" in df_dir_clientes.columns:
-            set_clientes.update(df_dir_clientes["Nombre Cliente"].dropna().unique().tolist())
-            
-        lista_clientes_preexistentes = sorted(list(set_clientes))
 
         if tipo_cli_sel == "Cliente Preexistente":
-            if len(lista_clientes_preexistentes) == 0:
-                st.caption("⚠️ No hay clientes registrados aún. Presiona **'⋮'** para dar de alta o usa 'Cliente Nuevo'.")
+            if df_dir_clientes.empty:
+                st.caption("⚠️ No hay clientes registrados en el directorio. Presiona **'⋮'** para dar de alta o usa 'Cliente Nuevo'.")
             else:
-                cli_seleccionado = st.selectbox("Selecciona el cliente:", options=["-- Seleccionar --"] + lista_clientes_preexistentes)
-                if cli_seleccionado != "-- Seleccionar --":
-                    st.session_state.cliente_nombre = cli_seleccionado
+                opciones_combo = ["-- Seleccionar --"] + [f"{row['Nombre Cliente']} — (N° {row['Numero Cliente']})" for _, row in df_dir_clientes.iterrows()]
+                
+                cli_seleccionado_str = st.selectbox("Selecciona el cliente:", options=opciones_combo)
+                if cli_seleccionado_str != "-- Seleccionar --":
+                    parts = cli_seleccionado_str.split(" — (N° ")
+                    nom_sel = parts[0]
+                    num_sel = parts[1].replace(")", "") if len(parts) > 1 else ""
                     
-                    # Buscar número de cliente en directorio o historial
-                    num_hallado = ""
-                    if not df_dir_clientes.empty and "Nombre Cliente" in df_dir_clientes.columns:
-                        match_dir = df_dir_clientes[df_dir_clientes["Nombre Cliente"] == cli_seleccionado]
-                        if not match_dir.empty:
-                            num_hallado = str(match_dir["Numero Cliente"].iloc[0])
+                    st.session_state.cliente_nombre = nom_sel
+                    st.session_state.cliente_numero = num_sel
                     
-                    if not num_hallado and not df_h_clientes.empty and "Nombre Cliente" in df_h_clientes.columns:
-                        match_h = df_h_clientes[df_h_clientes["Nombre Cliente"] == cli_seleccionado]
-                        if not match_h.empty and "Numero Cliente" in match_h.columns:
-                            num_hallado = str(match_h["Numero Cliente"].iloc[0])
-                            
-                    st.session_state.cliente_numero = num_hallado
-                    
-                    # Verificar si fue auditado previamente y mostrar mensaje
-                    ultima_aud = obtener_ultima_auditoria(cli_seleccionado, st.session_state.cliente_numero)
+                    ultima_aud = obtener_ultima_auditoria(nom_sel, num_sel)
                     if ultima_aud:
                         st.markdown(f"<div class='alerta-ultima-auditoria'>📌 <b>Última auditoría:</b> {ultima_aud}</div>", unsafe_allow_html=True)
 
