@@ -225,7 +225,7 @@ def consolidar_y_guardar_visita_actual():
 # 4. MOTOR DE GENERACIÓN DE EXCEL PROFESIONAL
 # ==========================================
 def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO"):
-    """Genera un archivo Excel con formato profesional, encabezados ejecutivos y estilos"""
+    """Genera un archivo Excel con formato profesional sin dependencias de dataframe_to_rows"""
     wb = Workbook()
     ws = wb.active
     ws.title = "Reporte_Auditoria"
@@ -285,7 +285,7 @@ def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO
         ws.cell(row=row_idx, column=5, value=r[3]).font = fuente_meta_val
         row_idx += 1
 
-    # 3. Tabla de Datos
+    # 3. Tabla de Datos (Inserción directa desde Pandas sin dataframe_to_rows)
     start_row = 7
     df_export = df.drop(columns=["Fecha_Hora"], errors="ignore")
     
@@ -297,12 +297,12 @@ def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO
         cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
     ws.row_dimensions[start_row].height = 22
 
-    # Escribir filas
-    for r_i, row in enumerate(dataframe_to_rows(df_export, index=False, header=False), start=start_row + 1):
-        ws.row_dimensions[r_i].height = 20
-        usar_cebra = (r_i % 2 == 0)
-        for c_i, val in enumerate(row, start=1):
-            cell = ws.cell(row=r_i, column=c_i, value=val)
+    # Escribir filas usando itertuples de pandas
+    for r_idx, row_data in enumerate(df_export.itertuples(index=False), start=start_row + 1):
+        ws.row_dimensions[r_idx].height = 20
+        usar_cebra = (r_idx % 2 == 0)
+        for c_idx, val in enumerate(row_data, start=1):
+            cell = ws.cell(row=r_idx, column=c_idx, value=val)
             cell.font = fuente_datos
             cell.border = borde_fino
             cell.alignment = Alignment(vertical='center')
@@ -321,7 +321,6 @@ def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO
     output = BytesIO()
     wb.save(output)
     return output.getvalue()
-
 # ==========================================
 # 5. CARGA DE DATOS FUENTE
 # ==========================================
