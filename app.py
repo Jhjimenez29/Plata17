@@ -5,10 +5,10 @@ import pandas as pd
 import streamlit as st
 import unicodedata
 
-# Librerías para formato avanzado de Excel
+# Reemplaza las importaciones de openpyxl por estas 3 líneas:
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import dataframe_to_rows
+# ❌ Eliminamos la línea: from openpyxl.utils.dataframe import dataframe_to_rows
 
 # ==========================================
 # 1. CONFIGURACIÓN E INICIALIZACIÓN
