@@ -296,7 +296,7 @@ elif st.session_state.pantalla == "reporte_auditoria":
                 st.rerun()
 
 # ==========================================
-# PANTALLA 3: HISTORIAL GENERAL DE REVISIONES
+# PANTALLA 3: HISTORIAL GENERAL DE REVISIONES (VISTA LIMPIA)
 # ==========================================
 elif st.session_state.pantalla == "historial":
     col_h1, col_h2 = st.columns([7, 3])
@@ -316,37 +316,52 @@ elif st.session_state.pantalla == "historial":
         st.markdown("#### 🔍 Filtros de Consulta")
         col_f1, col_f2 = st.columns(2)
         
+        opcion_default = "-- Seleccionar --"
+        
         with col_f1:
-            clientes_unicos = ["-- Todos los clientes --"] + sorted(df_historial["Nombre Cliente"].dropna().unique().tolist())
+            clientes_unicos = [opcion_default] + sorted(df_historial["Nombre Cliente"].dropna().unique().tolist())
             cliente_sel = st.selectbox("Filtrar por Cliente:", options=clientes_unicos)
             
         with col_f2:
-            fechas_unicas = ["-- Todas las fechas --"] + sorted(df_historial["Fecha"].dropna().unique().tolist(), reverse=True)
+            fechas_unicas = [opcion_default] + sorted(df_historial["Fecha"].dropna().unique().tolist(), reverse=True)
             fecha_sel = st.selectbox("Filtrar por Fecha:", options=fechas_unicas)
 
-        df_h_filtrado = df_historial.copy()
+        # Evaluar si hay filtros seleccionados
+        filtro_cliente_activo = (cliente_sel != opcion_default)
+        filtro_fecha_activo = (fecha_sel != opcion_default)
 
-        if cliente_sel != "-- Todos los clientes --":
-            df_h_filtrado = df_h_filtrado[df_h_filtrado["Nombre Cliente"] == cliente_sel]
+        # VISTA LIMPIA: Solo procesar y mostrar si al menos un filtro está seleccionado
+        if filtro_cliente_activo or filtro_fecha_activo:
+            df_h_filtrado = df_historial.copy()
 
-        if fecha_sel != "-- Todas las fechas --":
-            df_h_filtrado = df_h_filtrado[df_h_filtrado["Fecha"] == fecha_sel]
+            if filtro_cliente_activo:
+                df_h_filtrado = df_h_filtrado[df_h_filtrado["Nombre Cliente"] == cliente_sel]
 
-        st.markdown(f"**Registros encontrados:** `{len(df_h_filtrado)}` filas")
-        st.dataframe(df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore"), use_container_width=True, hide_index=True, height=350)
+            if filtro_fecha_activo:
+                df_h_filtrado = df_h_filtrado[df_h_filtrado["Fecha"] == fecha_sel]
 
-        output_h = BytesIO()
-        with pd.ExcelWriter(output_h, engine='openpyxl') as writer:
-            df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore").to_excel(writer, index=False, sheet_name='Historial_Jornada')
+            st.markdown("---")
+            st.markdown(f"**Registros encontrados:** `{len(df_h_filtrado)}` filas")
+            
+            if not df_h_filtrado.empty:
+                st.dataframe(df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore"), use_container_width=True, hide_index=True, height=350)
 
-        st.download_button(
-            label="📥 Descargar Reporte Consolidado (Excel)",
-            data=output_h.getvalue(),
-            file_name=f"Reporte_Jornada_Consolidado_{datetime.date.today()}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True,
-            type="primary"
-        )
+                output_h = BytesIO()
+                with pd.ExcelWriter(output_h, engine='openpyxl') as writer:
+                    df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore").to_excel(writer, index=False, sheet_name='Historial_Filtrado')
+
+                st.download_button(
+                    label="📥 Descargar Reporte de Consulta (Excel)",
+                    data=output_h.getvalue(),
+                    file_name=f"Reporte_Consulta_{datetime.date.today()}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                    type="primary"
+                )
+            else:
+                st.warning("⚠️ No se encontraron registros con la combinación de filtros seleccionada.")
+        else:
+            st.info("💡 **Vista Limpia:** Selecciona una opción en 'Filtrar por Cliente' o 'Filtrar por Fecha' para mostrar los resultados.")
 
 # ==========================================
 # PANTALLA PRINCIPAL: BÚSQUEDA Y SELECCIÓN
