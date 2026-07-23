@@ -494,16 +494,24 @@ elif st.session_state.pantalla == "reporte_auditoria":
         col_acc1, col_acc2, col_acc3 = st.columns(3)
         
         with col_acc1:
-           # Ubica el botón de finalizar visita
+          # Ubica el botón de finalizar visita
 if st.button("💾 Finalizar y Guardar Visita", type="primary"):
-    # 1. Tu proceso actual de guardado (aquí va tu código)
-    # ...
-    
-    # 2. Limpieza segura de la memoria temporal
+    # 1. Tu proceso actual de guardado
+    # ... (tu código de guardado va aquí) ...
+
+    # 2. Limpieza segura del estado
     st.session_state.busqueda_rapida = ""
     st.session_state.filtro_familia = "-- Selecciona una familia --"
     st.session_state.productos_seleccionados = {}
     st.session_state.marcas_seleccionadas = {}
+
+    # Reinicio seguro del cliente (evita el error de StreamlitAPIException / KeyError)
+    if "cliente_seleccionado" in st.session_state:
+        del st.session_state["cliente_seleccionado"]
+
+    # 3. Notificación y recarga
+    st.toast("✅ ¡Visita guardada correctamente! La pantalla se ha limpiado.", icon="🎉")
+    st.rerun()
 
     # Si usas un selector de cliente con estado/key:
     if "cliente_seleccionado" in st.session_state:
@@ -745,4 +753,5 @@ elif st.session_state.pantalla == "resultados":
                         del st.session_state.marcas_seleccionadas[nom_m]
 
                     st.markdown("<hr style='margin:2px 0; border:0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
+
 
