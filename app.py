@@ -710,32 +710,44 @@ elif st.session_state.pantalla == "resultados":
             else:
                 df_filtrado = df_productos.copy()
                 
-                # Búsqueda rápida vinculada a session_state
+                # Input de búsqueda rápida
                 busqueda = st.text_input(
                     "🔤 Búsqueda rápida por palabra clave (Descripción / Código / Clave):", 
                     key="busqueda_rapida",
                     placeholder="Escribe para buscar en todo el catálogo..."
                 )
 
-                # Aplicar Filtro de Familia
-                if columna_familia_real and st.session_state.filtro_familia != "-- Selecciona una familia --":
-                    df_filtrado = df_filtrado[df_filtrado[columna_familia_real] == st.session_state.filtro_familia]
+                # Evaluamos los criterios de filtro
+                familia_seleccionada = (
+                    st.session_state.filtro_familia != "-- Selecciona una familia --" 
+                    and st.session_state.filtro_familia != ""
+                )
+                busqueda_activa = bool(busqueda.strip())
 
-                # Aplicar Filtro de Texto
-                if busqueda.strip():
-                    busq_norm = normalizar_texto(busqueda)
-                    
-                    def coincide(row):
-                        for c in row.astype(str):
-                            if busq_norm in normalizar_texto(c):
-                                return True
-                        return False
+                # 1 y 2. Si NO hay familia seleccionada ni texto de búsqueda, no mostramos registros
+                if not familia_seleccionada and not busqueda_activa:
+                    st.info("💡 **Vista limpia:** Selecciona una **familia** en el panel izquierdo o escribe en el buscador para desplegar los productos.")
+                
+                else:
+                    # Aplicar filtro por Familia
+                    if columna_familia_real and familia_seleccionada:
+                        df_filtrado = df_filtrado[df_filtrado[columna_familia_real] == st.session_state.filtro_familia]
+
+                    # Aplicar filtro por Texto
+                    if busqueda_activa:
+                        busq_norm = normalizar_texto(busqueda)
                         
-                    df_filtrado = df_filtrado[df_filtrado.apply(coincide, axis=1)]
+                        def coincide(row):
+                            for c in row.astype(str):
+                                if busq_norm in normalizar_texto(c):
+                                    return True
+                            return False
+                            
+                        df_filtrado = df_filtrado[df_filtrado.apply(coincide, axis=1)]
 
-                st.markdown(f"**Productos encontrados:** `{len(df_filtrado)}` de `{len(df_productos)}`")
-                st.dataframe(df_filtrado, use_container_width=True, hide_index=True, height=450)
-
+                    # Desplegar contador y tabla solo si hay un filtro aplicado
+                    st.markdown(f"**Productos encontrados:** `{len(df_filtrado)}` de `{len(df_productos)}`")
+                    st.dataframe(df_filtrado, use_container_width=True, hide_index=True, height=450)
         # MODO 2: MARCAS
         else:
             if df_marcas is None:
