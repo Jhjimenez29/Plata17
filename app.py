@@ -62,11 +62,27 @@ def cargar_productos():
 
 @st.cache_data
 def cargar_marcas():
-    for enc in ["utf-8", "latin1"]:
-        try:
-            return pd.read_csv("marcas.csv", encoding=enc)
-        except Exception:
-            continue
+    # Intenta leer diferentes variaciones de nombre y formato (CSV o Excel)
+    nombres_posibles = ["marcas.csv", "Marcas.csv", "marcas.xlsx", "Marcas.xlsx"]
+    
+    for nombre in nombres_posibles:
+        # Intento de lectura si es CSV
+        if nombre.endswith(".csv"):
+            for enc in ["utf-8", "latin1"]:
+                try:
+                    df = pd.read_csv(nombre, encoding=enc)
+                    if df is not None and not df.empty:
+                        return df
+                except Exception:
+                    continue
+        # Intento de lectura si es Excel
+        elif nombre.endswith(".xlsx"):
+            try:
+                df = pd.read_excel(nombre)
+                if df is not None and not df.empty:
+                    return df
+            except Exception:
+                continue
     return None
 
 df_productos = cargar_productos()
