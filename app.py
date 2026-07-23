@@ -139,7 +139,6 @@ def guardar_cliente_directorio(num_cliente, nombre_cliente):
     
     df_existente = cargar_catalogo_clientes()
     
-    # Validar si exactamente la misma pareja (Número + Nombre) ya existe
     existe_exacto = False
     if not df_existente.empty:
         coincidencias = df_existente[
@@ -278,7 +277,7 @@ elif st.session_state.pantalla == "gestion_clientes":
                 st.dataframe(df_dir, use_container_width=True, hide_index=True, height=280)
 
             with tab_editar:
-                opciones_clientes_edit = [f"{idx} - {row['Nombre Cliente']} (N°: {row['Numero Cliente']})" for idx, row in df_dir.iterrows()]
+                opciones_clientes_edit = [f"{idx} - {row['Nombre Cliente']} {row['Numero Cliente']}" for idx, row in df_dir.iterrows()]
                 sel_edit = st.selectbox("Selecciona el cliente a modificar:", options=["-- Seleccionar --"] + opciones_clientes_edit)
                 
                 if sel_edit != "-- Seleccionar --":
@@ -301,14 +300,14 @@ elif st.session_state.pantalla == "gestion_clientes":
                                 st.error("⚠️ Los campos no pueden quedar vacíos.")
 
             with tab_eliminar:
-                opciones_clientes_del = [f"{idx} - {row['Nombre Cliente']} (N°: {row['Numero Cliente']})" for idx, row in df_dir.iterrows()]
+                opciones_clientes_del = [f"{idx} - {row['Nombre Cliente']} {row['Numero Cliente']}" for idx, row in df_dir.iterrows()]
                 sel_del = st.selectbox("Selecciona el cliente a eliminar:", options=["-- Seleccionar --"] + opciones_clientes_del)
                 
                 if sel_del != "-- Seleccionar --":
                     idx_d = int(sel_del.split(" - ")[0])
                     cliente_del_row = df_dir.iloc[idx_d]
                     
-                    st.warning(f"⚠️ Estás por eliminar el registro: **{cliente_del_row['Nombre Cliente']}** (N°: {cliente_del_row['Numero Cliente']})")
+                    st.warning(f"⚠️ Estás por eliminar el registro: **{cliente_del_row['Nombre Cliente']}** ({cliente_del_row['Numero Cliente']})")
                     
                     clave_sup = st.text_input("🔒 Ingresa la Clave de Supervisor para autorizar:", type="password", key="pass_sup_del")
                     
@@ -545,13 +544,21 @@ elif st.session_state.pantalla == "resultados":
             if df_dir_clientes.empty:
                 st.caption("⚠️ No hay clientes registrados en el directorio. Presiona **'⋮'** para dar de alta o usa 'Cliente Nuevo'.")
             else:
-                opciones_combo = ["-- Seleccionar --"] + [f"{row['Nombre Cliente']} — (N° {row['Numero Cliente']})" for _, row in df_dir_clientes.iterrows()]
+                # DICCIONARIO PARA FORMATO LIMPIO (Nombre Número)
+                dict_clientes = {}
+                opciones_combo = ["-- Seleccionar --"]
+                
+                for _, row in df_dir_clientes.iterrows():
+                    nom = str(row['Nombre Cliente']).strip()
+                    num = str(row['Numero Cliente']).strip()
+                    etiqueta_limpia = f"{nom} {num}".strip()
+                    opciones_combo.append(etiqueta_limpia)
+                    dict_clientes[etiqueta_limpia] = (nom, num)
                 
                 cli_seleccionado_str = st.selectbox("Selecciona el cliente:", options=opciones_combo)
+                
                 if cli_seleccionado_str != "-- Seleccionar --":
-                    parts = cli_seleccionado_str.split(" — (N° ")
-                    nom_sel = parts[0]
-                    num_sel = parts[1].replace(")", "") if len(parts) > 1 else ""
+                    nom_sel, num_sel = dict_clientes[cli_seleccionado_str]
                     
                     st.session_state.cliente_nombre = nom_sel
                     st.session_state.cliente_numero = num_sel
