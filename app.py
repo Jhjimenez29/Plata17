@@ -733,3 +733,4 @@ elif st.session_state.pantalla == "resultados":
                         del st.session_state.marcas_seleccionadas[nom_m]
 
                     st.markdown("<hr style='margin:2px 0; border:0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
+
