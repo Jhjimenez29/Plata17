@@ -48,7 +48,7 @@ if "filtro_familia" not in st.session_state:
 if "busqueda_rapida" not in st.session_state:
     st.session_state.busqueda_rapida = ""
 if "version_reset" not in st.session_state:
-    st.session_state.version_reset = 0  # Contador para forzar re-render limpio de widgets
+    st.session_state.version_reset = 0
 
 # CONFIGURACIÓN DEL CLIENTE ACTUAL
 if "tipo_cliente_seleccion" not in st.session_state:
@@ -79,7 +79,7 @@ def limpiar_casillas_y_seleccion():
             
     st.session_state.productos_seleccionados = {}
     st.session_state.marcas_seleccionadas = {}
-    st.session_state.version_reset += 1  # Forzar actualización de claves de Streamlit
+    st.session_state.version_reset += 1
 
 # --- CARGA Y GUARDADO DE DATOS ---
 @st.cache_data
@@ -112,6 +112,8 @@ def cargar_marcas():
                 continue
     return None
 
+COLUMNAS_HISTORIAL = ["Fecha", "Fecha_Hora", "Numero Cliente", "Nombre Cliente", "Esquema", "Tipo Registro", "Identificador / Código", "Descripción / Detalle", "Ubicación"]
+
 def guardar_en_historial_maestro(df_nuevas_filas):
     archivo_historial = "historial_revisiones.csv"
     if os.path.exists(archivo_historial):
@@ -123,10 +125,11 @@ def cargar_historial_maestro():
     archivo_historial = "historial_revisiones.csv"
     if os.path.exists(archivo_historial):
         try:
-            return pd.read_csv(archivo_historial, encoding='utf-8')
+            df = pd.read_csv(archivo_historial, encoding='utf-8', dtype=str)
+            return df
         except Exception:
-            return pd.DataFrame()
-    return pd.DataFrame()
+            return pd.DataFrame(columns=COLUMNAS_HISTORIAL)
+    return pd.DataFrame(columns=COLUMNAS_HISTORIAL)
 
 # GESTIÓN DEL CATÁLOGO DE CLIENTES PREEXISTENTES
 def cargar_catalogo_clientes():
@@ -500,38 +503,39 @@ elif st.session_state.pantalla == "historial":
     if df_historial.empty:
         st.info("ℹ️ Aún no hay visitas guardadas en el historial.")
     else:
-        st.markdown("#### 🔍 Filtros opcionales")
+        st.markdown("#### 🔍 Filtros Opcionales")
         col_f1, col_f2 = st.columns(2)
         
         opcion_default = "-- Todos --"
         
         with col_f1:
-            clientes_unicos = [opcion_default] + sorted(df_historial["Nombre Cliente"].dropna().unique().tolist())
+            clientes_unicos = [opcion_default] + sorted(df_historial["Nombre Cliente"].dropna().unique().tolist()) if "Nombre Cliente" in df_historial.columns else [opcion_default]
             cliente_sel = st.selectbox("Filtrar por Cliente:", options=clientes_unicos)
             
         with col_f2:
-            fechas_unicas = [opcion_default] + sorted(df_historial["Fecha"].dropna().unique().tolist(), reverse=True)
+            fechas_unicas = [opcion_default] + sorted(df_historial["Fecha"].dropna().unique().tolist(), reverse=True) if "Fecha" in df_historial.columns else [opcion_default]
             fecha_sel = st.selectbox("Filtrar por Fecha:", options=fechas_unicas)
 
-        # Aplicar filtros de forma dinámica sin ocultar la tabla principal
         df_h_filtrado = df_historial.copy()
-        if cliente_sel != opcion_default:
+
+        if cliente_sel != opcion_default and "Nombre Cliente" in df_h_filtrado.columns:
             df_h_filtrado = df_h_filtrado[df_h_filtrado["Nombre Cliente"] == cliente_sel]
-        if fecha_sel != opcion_default:
+
+        if fecha_sel != opcion_default and "Fecha" in df_h_filtrado.columns:
             df_h_filtrado = df_h_filtrado[df_h_filtrado["Fecha"] == fecha_sel]
 
         st.markdown("---")
-        st.markdown(f"**Registros mostrados:** `{len(df_h_filtrado)}` filas")
+        st.markdown(f"**Registros guardados:** `{len(df_h_filtrado)}` filas")
         
         if not df_h_filtrado.empty:
             st.dataframe(df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore"), use_container_width=True, hide_index=True, height=350)
 
             output_h = BytesIO()
             with pd.ExcelWriter(output_h, engine='openpyxl') as writer:
-                df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore").to_excel(writer, index=False, sheet_name='Historial_Completo')
+                df_h_filtrado.drop(columns=["Fecha_Hora"], errors="ignore").to_excel(writer, index=False, sheet_name='Historial')
 
             st.download_button(
-                label="📥 Descargar Reporte (Excel)",
+                label="📥 Descargar Reporte Completo (Excel)",
                 data=output_h.getvalue(),
                 file_name=f"Reporte_Historial_{datetime.date.today()}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -539,7 +543,8 @@ elif st.session_state.pantalla == "historial":
                 type="primary"
             )
         else:
-            st.warning("⚠️ No se encontraron registros con los filtros seleccionados.")
+            st.warning("⚠️ No se encontraron registros para los filtros seleccionados.")
+
 # ==========================================
 # PANTALLA PRINCIPAL: BÚSQUEDA Y SELECCIÓN
 # ==========================================
