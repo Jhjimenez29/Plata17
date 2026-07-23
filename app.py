@@ -72,7 +72,7 @@ def normalizar_texto(texto):
     return texto
 
 def limpiar_casillas_y_seleccion():
-    """Limpia los estados temporales e incrementa el contador de versión para reajustar los widgets"""
+    """Limpia los estados temporales de los widgets e incrementa la versión"""
     for key in list(st.session_state.keys()):
         if key.startswith("chk_") or key.startswith("sel_"):
             del st.session_state[key]
@@ -115,6 +115,7 @@ def cargar_marcas():
 COLUMNAS_HISTORIAL = ["Fecha", "Fecha_Hora", "Numero Cliente", "Nombre Cliente", "Esquema", "Tipo Registro", "Identificador / Código", "Descripción / Detalle", "Ubicación"]
 
 def guardar_en_historial_maestro(df_nuevas_filas):
+    """PUNTO 1: Guarda la información en el archivo persistente CSV"""
     archivo_historial = "historial_revisiones.csv"
     if os.path.exists(archivo_historial):
         df_nuevas_filas.to_csv(archivo_historial, mode='a', header=False, index=False, encoding='utf-8')
@@ -122,6 +123,7 @@ def guardar_en_historial_maestro(df_nuevas_filas):
         df_nuevas_filas.to_csv(archivo_historial, mode='w', header=True, index=False, encoding='utf-8')
 
 def cargar_historial_maestro():
+    """PUNTO 2: Carga los registros guardados para ser consultados en la pantalla Historial"""
     archivo_historial = "historial_revisiones.csv"
     if os.path.exists(archivo_historial):
         try:
@@ -191,15 +193,17 @@ def obtener_ultima_auditoria(nombre_cliente, num_cliente):
     return None
 
 def consolidar_y_guardar_visita_actual():
-    """Consolida las selecciones actuales y las guarda en el historial maestro"""
+    """Construye el DataFrame consolidado de la vista actual y lo guarda en el historial maestro"""
     nombre_c = st.session_state.cliente_nombre if st.session_state.cliente_nombre else "Cliente General"
     num_c = st.session_state.cliente_numero if st.session_state.cliente_numero else "1001"
     
     filas = []
     fecha_std = datetime.date.today().strftime("%Y-%m-%d")
-    fecha_hora_actual = datetime.datetime.now().strftime("%d de %B a las %I:%M %p").lower()
+    fecha_hora_actual = datetime.datetime.now().strftime("%d/%m/%Y %I:%M %p").lower()
     
+    # 1. Procesar Productos Seleccionados
     for k, v in st.session_state.productos_seleccionados.items():
+        desc = v["datos"].get("Descripcion de producto", str(v["datos"]))
         item = {
             "Fecha": fecha_std,
             "Fecha_Hora": fecha_hora_actual,
@@ -208,11 +212,12 @@ def consolidar_y_guardar_visita_actual():
             "Esquema": "Esquema Comercial 2017",
             "Tipo Registro": "PRODUCTO",
             "Identificador / Código": k,
-            "Descripción / Detalle": v["datos"].get("Descripcion de producto", str(v["datos"])),
+            "Descripción / Detalle": desc,
             "Ubicación": v["ubicacion"]
         }
         filas.append(item)
 
+    # 2. Procesar Marcas Seleccionadas
     for k, v in st.session_state.marcas_seleccionadas.items():
         item = {
             "Fecha": fecha_std,
@@ -297,7 +302,7 @@ if st.session_state.pantalla == "login":
                 st.error("Usuario o contraseña incorrectos.")
 
 # ==========================================
-# PANTALLA DE CONFIGURACIÓN / ALTA Y EDICIÓN DE CLIENTES
+# PANTALLA DE GESTIÓN DE CLIENTES
 # ==========================================
 elif st.session_state.pantalla == "gestion_clientes":
     col_g1, col_g2 = st.columns([7, 3])
@@ -416,7 +421,7 @@ elif st.session_state.pantalla == "reporte_auditoria":
         st.markdown("---")
 
         filas_consolidadas = []
-        fecha_hora_actual = datetime.datetime.now().strftime("%d de %B a las %I:%M %p").lower()
+        fecha_hora_actual = datetime.datetime.now().strftime("%d/%m/%Y %I:%M %p").lower()
         fecha_std = fecha_rev.strftime("%Y-%m-%d")
 
         for k, v in st.session_state.productos_seleccionados.items():
@@ -486,7 +491,7 @@ elif st.session_state.pantalla == "reporte_auditoria":
                 st.rerun()
 
 # ==========================================
-# PANTALLA 3: HISTORIAL GENERAL DE REVISIONES
+# PANTALLA 3: HISTORIAL GENERAL DE REVISIONES (PUNTO 2)
 # ==========================================
 elif st.session_state.pantalla == "historial":
     col_h1, col_h2 = st.columns([7, 3])
@@ -633,7 +638,7 @@ elif st.session_state.pantalla == "resultados":
             st.session_state.cliente_numero = ""
             st.caption("ℹ️ Navegación libre sin asignación de cliente.")
 
-        # BOTONES DE FINALIZACIÓN Y LIMPIEZA
+        # BOTONES DE FINALIZACIÓN Y LIMPIEZA (PUNTO 1)
         if total_sel > 0:
             st.markdown("---")
             if st.button("💾 Finalizar y Guardar Visita", use_container_width=True, type="primary"):
@@ -752,12 +757,6 @@ elif st.session_state.pantalla == "resultados":
                         if len(cols_disponibles) > 0:
                             st.dataframe(df_filtrado[cols_disponibles], use_container_width=True, hide_index=True, height=300)
                             
-                            texto_compartir = f"Esquema Comercial 2017 - Consulta rápida\n\n"
-                            for index, fila in df_filtrado[cols_disponibles].head(3).iterrows():
-                                datos = [f"{col}: {fila[col]}" for col in cols_disponibles]
-                                texto_compartir += " | ".join(datos) + "\n"
-                            st.text_area("📋 Copiar resumen para compartir:", value=texto_compartir, height=70)
-
                             st.markdown("---")
                             st.markdown("#### 📌 Marca los productos encontrados para tu reporte:")
                             
@@ -777,16 +776,29 @@ elif st.session_state.pantalla == "resultados":
                                     st.write(f"**{prod_id}** - {desc_txt}")
                                 
                                 with col_ubi:
-                                    ubicacion_sel = st.selectbox("Ubicación", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubic_actual), key=f"sel_ubic_{prod_id}_{idx}_v{v}", label_visibility="collapsed")
+                                    ubicacion_sel = st.selectbox(
+                                        "Ubicación", 
+                                        ["Piso de Venta", "Almacén", "Ambos"], 
+                                        index=["Piso de Venta", "Almacén", "Ambos"].index(ubic_actual), 
+                                        key=f"sel_ubic_{prod_id}_{idx}_v{v}", 
+                                        label_visibility="collapsed"
+                                    )
 
                                 with col_chk:
-                                    marcado = st.checkbox("", value=esta_marcado, key=f"chk_p_{prod_id}_{idx}_v{v}")
+                                    # PUNTO 1: Callback directo al presionar la casilla
+                                    def on_prod_change(pid=prod_id, r=row, key_chk=f"chk_p_{prod_id}_{idx}_v{v}", key_ubi=f"sel_ubic_{prod_id}_{idx}_v{v}"):
+                                        if st.session_state.get(key_chk, False):
+                                            u = st.session_state.get(key_ubi, "Piso de Venta")
+                                            st.session_state.productos_seleccionados[pid] = {"datos": r.to_dict(), "ubicacion": u}
+                                        else:
+                                            st.session_state.productos_seleccionados.pop(pid, None)
 
-                                if marcado:
-                                    st.session_state.productos_seleccionados[prod_id] = {"datos": row.to_dict(), "ubicacion": ubicacion_sel}
-                                else:
-                                    if prod_id in st.session_state.productos_seleccionados:
-                                        del st.session_state.productos_seleccionados[prod_id]
+                                    st.checkbox(
+                                        "", 
+                                        value=esta_marcado, 
+                                        key=f"chk_p_{prod_id}_{idx}_v{v}",
+                                        on_change=on_prod_change
+                                    )
 
                                 st.markdown("<hr style='margin:2px 0; border:0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
                         else:
@@ -821,15 +833,28 @@ elif st.session_state.pantalla == "resultados":
                         st.markdown(f"🏷️ **{nombre_marca}**")
 
                     with col_ubi:
-                        ubicacion_m_sel = st.selectbox("Ubicación Marca", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubic_m_def), key=f"sel_ubi_m_{nombre_marca}_{idx}_v{v}", label_visibility="collapsed")
+                        ubicacion_m_sel = st.selectbox(
+                            "Ubicación Marca", 
+                            ["Piso de Venta", "Almacén", "Ambos"], 
+                            index=["Piso de Venta", "Almacén", "Ambos"].index(ubic_m_def), 
+                            key=f"sel_ubi_m_{nombre_marca}_{idx}_v{v}", 
+                            label_visibility="collapsed"
+                        )
 
                     with col_chk:
-                        marcado_m = st.checkbox("", value=esta_sel_m, key=f"chk_m_{nombre_marca}_{idx}_v{v}")
+                        # PUNTO 1: Callback directo al presionar la casilla de marcas
+                        def on_marca_change(m_name=nombre_marca, key_chk=f"chk_m_{nombre_marca}_{idx}_v{v}", key_ubi=f"sel_ubi_m_{nombre_marca}_{idx}_v{v}"):
+                            if st.session_state.get(key_chk, False):
+                                u = st.session_state.get(key_ubi, "Piso de Venta")
+                                st.session_state.marcas_seleccionadas[m_name] = {"ubicacion": u}
+                            else:
+                                st.session_state.marcas_seleccionadas.pop(m_name, None)
 
-                    if marcado_m:
-                        st.session_state.marcas_seleccionadas[nombre_marca] = {"ubicacion": ubicacion_m_sel}
-                    else:
-                        if nombre_marca in st.session_state.marcas_seleccionadas:
-                            del st.session_state.marcas_seleccionadas[nombre_marca]
+                        st.checkbox(
+                            "", 
+                            value=esta_sel_m, 
+                            key=f"chk_m_{nombre_marca}_{idx}_v{v}",
+                            on_change=on_marca_change
+                        )
 
                     st.markdown("<hr style='margin:2px 0; border:0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
