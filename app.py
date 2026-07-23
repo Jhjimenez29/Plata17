@@ -47,6 +47,8 @@ if "filtro_familia" not in st.session_state:
     st.session_state.filtro_familia = "-- Selecciona una familia --"
 if "busqueda_rapida" not in st.session_state:
     st.session_state.busqueda_rapida = ""
+if "version_reset" not in st.session_state:
+    st.session_state.version_reset = 0  # Contador para forzar re-render limpio de widgets
 
 # CONFIGURACIÓN DEL CLIENTE ACTUAL
 if "tipo_cliente_seleccion" not in st.session_state:
@@ -70,12 +72,14 @@ def normalizar_texto(texto):
     return texto
 
 def limpiar_casillas_y_seleccion():
-    """Limpia los estados temporales de casillas de verificación para evitar contaminación"""
+    """Limpia los estados temporales e incrementa el contador de versión para reajustar los widgets"""
     for key in list(st.session_state.keys()):
-        if key.startswith("chk_p_") or key.startswith("chk_m_") or key.startswith("sel_ubic_") or key.startswith("sel_ubi_m_"):
+        if key.startswith("chk_") or key.startswith("sel_"):
             del st.session_state[key]
+            
     st.session_state.productos_seleccionados = {}
     st.session_state.marcas_seleccionadas = {}
+    st.session_state.version_reset += 1  # Forzar actualización de claves de Streamlit
 
 # --- CARGA Y GUARDADO DE DATOS ---
 @st.cache_data
@@ -760,6 +764,7 @@ elif st.session_state.pantalla == "resultados":
                             st.markdown("---")
                             st.markdown("#### 📌 Marca los productos encontrados para tu reporte:")
                             
+                            v = st.session_state.version_reset
                             df_muestra = df_filtrado.head(30)
                             for idx, row in df_muestra.iterrows():
                                 col_id_ref = columna_codigo_real if columna_codigo_real else df_muestra.columns[0]
@@ -775,10 +780,10 @@ elif st.session_state.pantalla == "resultados":
                                     st.write(f"**{prod_id}** - {desc_txt}")
                                 
                                 with col_ubi:
-                                    ubicacion_sel = st.selectbox("Ubicación", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubic_actual), key=f"sel_ubic_{prod_id}_{idx}", label_visibility="collapsed")
+                                    ubicacion_sel = st.selectbox("Ubicación", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubic_actual), key=f"sel_ubic_{prod_id}_{idx}_v{v}", label_visibility="collapsed")
 
                                 with col_chk:
-                                    marcado = st.checkbox("", value=esta_marcado, key=f"chk_p_{prod_id}_{idx}")
+                                    marcado = st.checkbox("", value=esta_marcado, key=f"chk_p_{prod_id}_{idx}_v{v}")
 
                                 if marcado:
                                     st.session_state.productos_seleccionados[prod_id] = {"datos": row.to_dict(), "ubicacion": ubicacion_sel}
@@ -803,6 +808,7 @@ elif st.session_state.pantalla == "resultados":
                 st.warning("⚠️ No se encontró el archivo 'marcas.csv' o 'marcas.xlsx'.")
             else:
                 col_nombre_marca = df_marcas.columns[0]
+                v = st.session_state.version_reset
                 
                 for idx, row in df_marcas.iterrows():
                     nombre_marca = str(row[col_nombre_marca]).strip()
@@ -818,10 +824,10 @@ elif st.session_state.pantalla == "resultados":
                         st.markdown(f"🏷️ **{nombre_marca}**")
 
                     with col_ubi:
-                        ubicacion_m_sel = st.selectbox("Ubicación Marca", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubic_m_def), key=f"sel_ubi_m_{nombre_marca}_{idx}", label_visibility="collapsed")
+                        ubicacion_m_sel = st.selectbox("Ubicación Marca", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubic_m_def), key=f"sel_ubi_m_{nombre_marca}_{idx}_v{v}", label_visibility="collapsed")
 
                     with col_chk:
-                        marcado_m = st.checkbox("", value=esta_sel_m, key=f"chk_m_{nombre_marca}_{idx}")
+                        marcado_m = st.checkbox("", value=esta_sel_m, key=f"chk_m_{nombre_marca}_{idx}_v{v}")
 
                     if marcado_m:
                         st.session_state.marcas_seleccionadas[nombre_marca] = {"ubicacion": ubicacion_m_sel}
