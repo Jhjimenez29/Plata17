@@ -724,7 +724,7 @@ elif st.session_state.pantalla == "resultados":
                 )
                 busqueda_activa = bool(busqueda.strip())
 
-                # 1 y 2. Si NO hay familia seleccionada ni texto de búsqueda, no mostramos registros
+                # Si NO hay familia seleccionada ni texto de búsqueda, vista limpia
                 if not familia_seleccionada and not busqueda_activa:
                     st.info("💡 **Vista limpia:** Selecciona una **familia** en el panel izquierdo o escribe en el buscador para desplegar los productos.")
                 
@@ -745,9 +745,28 @@ elif st.session_state.pantalla == "resultados":
                             
                         df_filtrado = df_filtrado[df_filtrado.apply(coincide, axis=1)]
 
-                    # Desplegar contador y tabla solo si hay un filtro aplicado
+                    # Definir las columnas visibles por defecto
+                    # Ajustamos los nombres según las columnas reales detectadas en el CSV
+                    cols_defecto = []
+                    if "Descripcion de producto" in df_filtrado.columns:
+                        cols_defecto.append("Descripcion de producto")
+                    if "Numero de familia" in df_filtrado.columns:
+                        cols_defecto.append("Numero de familia")
+                    if columna_familia_real and columna_familia_real in df_filtrado.columns:
+                        cols_defecto.append(columna_familia_real)
+
+                    # Desplegar contador
                     st.markdown(f"**Productos encontrados:** `{len(df_filtrado)}` de `{len(df_productos)}`")
-                    st.dataframe(df_filtrado, use_container_width=True, hide_index=True, height=450)
+                    
+                    # Renderizado del dataframe:
+                    # column_order define lo que se ve por defecto sin borrar el resto del menú flotante (👁️)
+                    st.dataframe(
+                        df_filtrado, 
+                        column_order=cols_defecto if cols_defecto else None,
+                        use_container_width=True, 
+                        hide_index=True, 
+                        height=450
+                    )
         # MODO 2: MARCAS
         else:
             if df_marcas is None:
