@@ -621,151 +621,53 @@ elif st.session_state.pantalla == "resultados":
                     st.session_state.busqueda_rapida = busqueda
                     st.rerun()
 
-                # Aplicar Filtro de Familia
+                # Verificar si hay algún filtro activo por parte del usuario
                 fam_activa = st.session_state.filtro_familia != "-- Selecciona una familia --"
-                if fam_activa and columna_familia_real and columna_familia_real in df_filtrado.columns:
-                    df_filtrado = df_filtrado[df_filtrado[columna_familia_real] == st.session_state.filtro_familia]
+                texto_activo = bool(st.session_state.busqueda_rapida.strip())
+                filtro_aplicado = fam_activa or texto_activo
 
-                # Aplicar Filtro de Texto
-                if st.session_state.busqueda_rapida.strip():
-                    cond = pd.Series(False, index=df_filtrado.index)
-                    for col_val in df_filtrado.columns:
-                        cond |= df_filtrado[col_val].astype(str).str.contains(st.session_state.busqueda_rapida, case=False, na=False)
-                    df_filtrado = df_filtrado[cond]
+                if filtro_aplicado:
+                    # Aplicar Filtro de Familia
+                    if fam_activa and columna_familia_real and columna_familia_real in df_filtrado.columns:
+                        df_filtrado = df_filtrado[df_filtrado[columna_familia_real] == st.session_state.filtro_familia]
 
-                # Mostrar Tarjetas Informativas
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Familia Seleccionada</span><br><strong>{st.session_state.filtro_familia if fam_activa else 'Todas'}</strong></div>", unsafe_allow_html=True)
-                with c2:
-                    st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Coincidencias</span><br><strong style='color:#2563EB;'>{len(df_filtrado)}</strong></div>", unsafe_allow_html=True)
-                with c3:
-                    st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Total Catálogo</span><br><strong>{len(df_productos)}</strong></div>", unsafe_allow_html=True)
+                    # Aplicar Filtro de Texto
+                    if texto_activo:
+                        cond = pd.Series(False, index=df_filtrado.index)
+                        for col_val in df_filtrado.columns:
+                            cond |= df_filtrado[col_val].astype(str).str.contains(st.session_state.busqueda_rapida, case=False, na=False)
+                        df_filtrado = df_filtrado[cond]
 
-                # Mostrar Resultados
-                if not df_filtrado.empty:
-                    # Columnas solicitadas por defecto
-                    cols_deseadas = ["Descripcion de producto", "Numero de familia", "Familia 2017"]
-                    
-                    # Detecta las columnas que coincidan en el DataFrame
-                    cols_a_mostrar = [c for c in cols_deseadas if c in df_filtrado.columns]
-                    
-                    # Si no encuentra alguna por acento o variaciones de nombre, intenta buscar variantes típicas
-                    if "Numero de familia" not in cols_a_mostrar:
-                        var_num_fam = [c for c in df_filtrado.columns if "numero de familia" in normalizar_texto(c) or "num" in normalizar_texto(c) and "familia" in normalizar_texto(c)]
-                        if var_num_fam:
-                            cols_a_mostrar.insert(1, var_num_fam[0])
+                    # Mostrar Tarjetas Informativas solo con filtro activo
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Familia Seleccionada</span><br><strong>{st.session_state.filtro_familia if fam_activa else 'Todas'}</strong></div>", unsafe_allow_html=True)
+                    with c2:
+                        st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Coincidencias</span><br><strong style='color:#2563EB;'>{len(df_filtrado)}</strong></div>", unsafe_allow_html=True)
+                    with c3:
+                        st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Total Catálogo</span><br><strong>{len(df_productos)}</strong></div>", unsafe_allow_html=True)
 
-                    # Muestra la tabla limpia con el icono de OJO activo en la esquina superior derecha
-                    st.dataframe(
-                        df_filtrado[cols_a_mostrar], 
-                        use_container_width=True, 
-                        hide_index=True, 
-                        height=480
-                    )
-                else:
-                    st.warning("⚠️ No se encontraron productos con los filtros seleccionados.")
-
-        else:
-            st.markdown("<h4 style='color: #000000;'>🏷️ Listado de Marcas</h4>", unsafe_allow_html=True)
-            st.markdown("---")
-            if df_marcas is None:
-                st.warning("⚠️ No se cargó 'marcas.csv' o 'marcas.xlsx'.")
-            else:
-                col_m = df_marcas.columns[0]
-                for idx, row in df_marcas.iterrows():
-                    nom_m = str(row[col_m]).strip()
-                    if not nom_m or nom_m.lower() == "nan":
-                        continue
-
-                    marcado_m = nom_m in st.session_state.marcas_seleccionadas
-                    ubi_m_act = st.session_state.marcas_seleccionadas[nom_m]["ubicacion"] if marcado_m else "Piso de Venta"
-
-                    cnom, cubi, cchk = st.columns([6, 3, 1])
-                    with cnom:
-                        st.markdown(f"🏷️ **{nom_m}**")
-                    with cubi:
-                        u_m_sel = st.selectbox("Ubicación Marca", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubi_m_act), key=f"sel_ubi_m_{nom_m}_{idx}", label_visibility="collapsed")
-                    with cchk:
-                        chk_m = st.checkbox("", value=marcado_m, key=f"chk_m_{nom_m}_{idx}")
-
-                    if chk_m:
-                        st.session_state.marcas_seleccionadas[nom_m] = {"ubicacion": u_m_sel}
-                    elif nom_m in st.session_state.marcas_seleccionadas:
-                        del st.session_state.marcas_seleccionadas[nom_m]
-
-                    st.markdown("<hr style='margin:2px 0; border:0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
-    # -------------------------------------------------------------
-    # PANEL DE RESULTADOS Y PRODUCTOS (LADO DERECHO)
-    # -------------------------------------------------------------
-    with col_panel_resultados:
-        if st.session_state.vista_catalogo == "productos":
-            if df_productos is None:
-                st.error("⚠️ No se pudo cargar 'productos.csv'. Asegúrate de que el archivo esté en la carpeta del proyecto.")
-            else:
-                df_filtrado = df_productos.copy()
-                
-                # Caja de Búsqueda Rápida
-                busqueda = st.text_input("🔤 Búsqueda rápida:", value=st.session_state.busqueda_rapida, placeholder="Escribe código, clave o descripción...")
-
-                if busqueda != st.session_state.busqueda_rapida:
-                    st.session_state.busqueda_rapida = busqueda
-                    st.rerun()
-
-                # Aplicar Filtro de Familia
-                fam_activa = st.session_state.filtro_familia != "-- Selecciona una familia --"
-                if fam_activa and columna_familia_real and columna_familia_real in df_filtrado.columns:
-                    df_filtrado = df_filtrado[df_filtrado[columna_familia_real] == st.session_state.filtro_familia]
-
-                # Aplicar Filtro de Texto
-                if st.session_state.busqueda_rapida.strip():
-                    cond = pd.Series(False, index=df_filtrado.index)
-                    for col_val in df_filtrado.columns:
-                        cond |= df_filtrado[col_val].astype(str).str.contains(st.session_state.busqueda_rapida, case=False, na=False)
-                    df_filtrado = df_filtrado[cond]
-
-                # Mostrar Tarjetas Informativas
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Familia Seleccionada</span><br><strong>{st.session_state.filtro_familia if fam_activa else 'Todas'}</strong></div>", unsafe_allow_html=True)
-                with c2:
-                    st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Coincidencias</span><br><strong style='color:#2563EB;'>{len(df_filtrado)}</strong></div>", unsafe_allow_html=True)
-                with c3:
-                    st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Total Catálogo</span><br><strong>{len(df_productos)}</strong></div>", unsafe_allow_html=True)
-
-                # Mostrar Resultados y Checkboxes
-                if not df_filtrado.empty:
-                    # Mostrar Tabla General
-                    cols_a_mostrar = [c for c in st.session_state.columnas_seleccionadas if c in df_filtrado.columns]
-                    st.dataframe(df_filtrado[cols_a_mostrar], use_container_width=True, hide_index=True, height=260)
-                    
-                    st.markdown("---")
-                    st.markdown("#### 📌 Marcar productos de esta vista:")
-                    
-                    # Iterar primeros 30 registros
-                    for idx, row in df_filtrado.head(30).iterrows():
-                        p_id = str(row.iloc[0]) if len(row) > 0 else f"PROD_{idx}"
+                    # Mostrar Tabla de Resultados
+                    if not df_filtrado.empty:
+                        cols_deseadas = ["Descripcion de producto", "Numero de familia", "Familia 2017"]
+                        cols_a_mostrar = [c for c in cols_deseadas if c in df_filtrado.columns]
                         
-                        marcado = p_id in st.session_state.productos_seleccionados
-                        ubi_act = st.session_state.productos_seleccionados[p_id]["ubicacion"] if marcado else "Piso de Venta"
+                        if "Numero de familia" not in cols_a_mostrar:
+                            var_num_fam = [c for c in df_filtrado.columns if "numero de familia" in normalizar_texto(c) or ("num" in normalizar_texto(c) and "familia" in normalizar_texto(c))]
+                            if var_num_fam:
+                                cols_a_mostrar.insert(1, var_num_fam[0])
 
-                        cdet, cubi, cchk = st.columns([6, 3, 1])
-                        with cdet:
-                            desc = row.get("Descripcion de producto", str(row.iloc[1] if len(row)>1 else p_id))
-                            st.write(f"**{p_id}** - {desc}")
-                        with cubi:
-                            u_sel = st.selectbox("Ubicación", ["Piso de Venta", "Almacén", "Ambos"], index=["Piso de Venta", "Almacén", "Ambos"].index(ubi_act), key=f"sel_ubic_{p_id}_{idx}", label_visibility="collapsed")
-                        with cchk:
-                            chk = st.checkbox("", value=marcado, key=f"chk_p_{p_id}_{idx}")
-
-                        if chk:
-                            st.session_state.productos_seleccionados[p_id] = {"datos": row.to_dict(), "ubicacion": u_sel}
-                        elif p_id in st.session_state.productos_seleccionados:
-                            del st.session_state.productos_seleccionados[p_id]
-
-                        st.markdown("<hr style='margin:2px 0; border:0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
+                        st.dataframe(
+                            df_filtrado[cols_a_mostrar], 
+                            use_container_width=True, 
+                            hide_index=True, 
+                            height=480
+                        )
+                    else:
+                        st.warning("⚠️ No se encontraron productos con los filtros seleccionados.")
                 else:
-                    st.warning("⚠️ No se encontraron productos con los filtros seleccionados.")
+                    # Mensaje discreto en pantalla limpia por defecto
+                    st.info("💡 Utiliza el buscador o selecciona una familia para desplegar los productos.")
 
         else:
             st.markdown("<h4 style='color: #000000;'>🏷️ Listado de Marcas</h4>", unsafe_allow_html=True)
