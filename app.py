@@ -16,9 +16,10 @@ st.set_page_config(page_title="Catálogo & Auditoría", page_icon="📱", layout
 
 CLAVE_SUPERVISOR = "super123"
 
-# Estilos CSS
+# Estilos CSS con acentos en ROJO para radio buttons y controles
 st.markdown("""
     <style>
+    /* Estilo de tarjetas suaves */
     .sombra-tenue {
         background-color: #F8FAFC;
         border: 1px solid #E2E8F0;
@@ -41,6 +42,21 @@ st.markdown("""
         font-size: 13px;
         margin-top: 8px;
     }
+    
+    /* Personalización de Radio Buttons a color ROJO */
+    div[data-testid="stRadio"] label[data-baseweb="radio"] div:first-child {
+        background-color: white !important;
+    }
+    div[data-testid="stRadio"] input[type="radio"]:checked + div {
+        border-color: #DC2626 !important;
+        background-color: #DC2626 !important;
+    }
+    div[data-testid="stRadio"] input[type="radio"]:checked + div > div {
+        background-color: white !important;
+    }
+    div[data-testid="stRadio"] input[type="radio"] {
+        accent-color: #DC2626 !important;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -48,7 +64,7 @@ def inicializar_estado_sesion():
     """Inicializa todas las variables globales de sesión"""
     defaults = {
         "pantalla": "login",
-        "vista_catalogo": "productos",
+        "vista_catalogo": None,
         "filtro_familia": "-- Selecciona una familia --",
         "busqueda_rapida": "",
         "tipo_cliente_seleccion": "Uso libre / Consulta",
@@ -64,7 +80,7 @@ def inicializar_estado_sesion():
 inicializar_estado_sesion()
 
 # ==========================================
-# 2. FUNCIONES DE UTILIDAD Y LIMPIEZA
+# 2. FUNCIONES DE UTILIDAD Y LIMPIEZA TOTAL
 # ==========================================
 def normalizar_texto(texto):
     if not isinstance(texto, str):
@@ -72,13 +88,27 @@ def normalizar_texto(texto):
     texto = texto.strip().lower()
     return ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
 
-def limpiar_casillas_y_seleccion():
-    """Restablece los componentes de la interfaz y limpia la memoria temporal"""
-    for key in list(st.session_state.keys()):
-        if key.startswith("chk_p_") or key.startswith("chk_m_") or key.startswith("sel_ubic_") or key.startswith("sel_ubi_m_"):
-            del st.session_state[key]
+def reiniciar_pantalla_total():
+    """Limpia la selección de productos, marcas, cliente y restablece los controles visuales"""
+    # 1. Eliminar claves asociadas a checkboxes, selectbox y widgets dinámicos de la sesión
+    keys_a_borrar = [
+        k for k in st.session_state.keys() 
+        if k.startswith("chk_p_") or k.startswith("chk_m_") or 
+           k.startswith("sel_ubic_") or k.startswith("sel_ubi_m_") or 
+           k in ["radio_modo_consulta", "radio_tipo_cliente"]
+    ]
+    for key in keys_a_borrar:
+        del st.session_state[key]
+    
+    # 2. Resetear variables de estado a su forma neutral inicial
     st.session_state.productos_seleccionados = {}
     st.session_state.marcas_seleccionadas = {}
+    st.session_state.tipo_cliente_seleccion = "Uso libre / Consulta"
+    st.session_state.cliente_nombre = ""
+    st.session_state.cliente_numero = ""
+    st.session_state.vista_catalogo = None
+    st.session_state.filtro_familia = "-- Selecciona una familia --"
+    st.session_state.busqueda_rapida = ""
 
 # ==========================================
 # 3. GESTIÓN DE ARCHIVOS Y PERSISTENCIA (CSV/DATOS)
@@ -346,9 +376,7 @@ if df_productos is not None:
             if not columna_desc_prod_real:
                 columna_desc_prod_real = col
 
-    # Respaldo si no detectó por nombre exacto
     if not columna_familia_real:
-        # Busca cualquier columna que contenga la palabra 'familia'
         fam_cols = [c for c in df_productos.columns if "familia" in normalizar_texto(c)]
         if fam_cols:
             columna_familia_real = fam_cols[0]
@@ -365,7 +393,6 @@ if df_productos is not None:
     if renombrar_dict:
         df_productos = df_productos.rename(columns=renombrar_dict)
 
-    # Columnas visibles por defecto
     st.session_state.columnas_seleccionadas = [c for c in df_productos.columns if c not in ["Fecha", "Fecha_Hora"]]
 
 # ==========================================
@@ -494,13 +521,11 @@ elif st.session_state.pantalla == "reporte_auditoria":
         col_acc1, col_acc2, col_acc3 = st.columns(3)
         
         with col_acc1:
-            if st.button("💾 Guardar y Finalizar Visita", use_container_width=True, type="primary"):
+            if st.button("💾 Confirmar y Guardar Visita Actual", use_container_width=True, type="primary"):
+                nombre_guardado = st.session_state.cliente_nombre or "Cliente General"
                 if consolidar_y_guardar_visita_actual():
-                    st.success(f"✅ ¡Visita de '{st.session_state.cliente_nombre}' guardada exitosamente!")
-                limpiar_casillas_y_seleccion()
-                st.session_state.tipo_cliente_seleccion = "Uso libre / Consulta"
-                st.session_state.cliente_nombre = ""
-                st.session_state.cliente_numero = ""
+                    st.toast(f"✅ ¡Visita de '{nombre_guardado}' guardada con éxito!")
+                reiniciar_pantalla_total()
                 st.session_state.pantalla = "resultados"
                 st.rerun()
 
@@ -516,7 +541,8 @@ elif st.session_state.pantalla == "reporte_auditoria":
 
         with col_acc3:
             if st.button("🗑️ Descartar Selección Actual", use_container_width=True):
-                limpiar_casillas_y_seleccion()
+                reiniciar_pantalla_total()
+                st.session_state.pantalla = "resultados"
                 st.rerun()
 
 # --- PANTALLA: HISTORIAL GENERAL ---
@@ -611,9 +637,18 @@ elif st.session_state.pantalla == "resultados":
         # 1. Selección de Cliente
         st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>👤 Selección de Cliente</h4></div>", unsafe_allow_html=True)
         
-        opciones_modo = ["Cliente Preexistente", "Cliente Nuevo", "Uso libre / Consulta"]
-        idx_m = opciones_modo.index(st.session_state.tipo_cliente_seleccion) if st.session_state.tipo_cliente_seleccion in opciones_modo else 2
-        tipo_cli_sel = st.radio("Modo de atención:", options=opciones_modo, index=idx_m)
+        # Opciones limpias sin "-- Seleccionar --"
+        opciones_modo = ["Uso libre / Consulta", "Cliente Preexistente", "Cliente Nuevo"]
+        
+        val_actual = st.session_state.tipo_cliente_seleccion
+        idx_m = opciones_modo.index(val_actual) if val_actual in opciones_modo else 0
+        
+        tipo_cli_sel = st.radio(
+            "Modo de atención:",
+            options=opciones_modo,
+            index=idx_m,
+            key="radio_tipo_cliente"
+        )
         
         if tipo_cli_sel != st.session_state.tipo_cliente_seleccion:
             st.session_state.tipo_cliente_seleccion = tipo_cli_sel
@@ -650,28 +685,46 @@ elif st.session_state.pantalla == "resultados":
             st.session_state.cliente_nombre = ""
             st.session_state.cliente_numero = ""
 
-        # Botones de Acción
+        # Botones de Acción (Confirmación y Limpieza)
         if total_sel > 0:
             st.markdown("---")
-            if st.button("💾 Finalizar y Guardar Visita", use_container_width=True, type="primary"):
+            if st.button("💾 Confirmar y Guardar Visita", use_container_width=True, type="primary"):
+                nombre_guardado = st.session_state.cliente_nombre or "Cliente General"
                 if consolidar_y_guardar_visita_actual():
-                    st.success("✅ ¡Visita guardada con éxito!")
-                limpiar_casillas_y_seleccion()
-                st.session_state.cliente_nombre = ""
-                st.session_state.cliente_numero = ""
+                    st.toast(f"✅ ¡Visita de '{nombre_guardado}' guardada exitosamente!")
+                reiniciar_pantalla_total()
                 st.rerun()
 
-            if st.button("🧹 Limpiar Casillas del Cliente", use_container_width=True):
-                limpiar_casillas_y_seleccion()
-                st.toast("🧹 Casillas restablecidas.")
+            if st.button("🧹 Limpiar Pantalla / Cancelar", use_container_width=True):
+                reiniciar_pantalla_total()
+                st.toast("🧹 Vista limpiada por completo.")
                 st.rerun()
 
         # 2. Modo de Consulta (Vista)
         st.markdown("---")
         st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>Modo de Consulta</h4></div>", unsafe_allow_html=True)
-        modo_sel = st.radio("Vista:", options=["🔎 Catálogo de Productos", "🏷️ Listado de Marcas"], index=0 if st.session_state.vista_catalogo == "productos" else 1, label_visibility="collapsed")
         
-        nuevo_m = "productos" if "Productos" in modo_sel else "marcas"
+        opciones_vista = ["🔎 Catálogo de Productos", "🏷️ Listado de Marcas"]
+        
+        if st.session_state.vista_catalogo == "productos":
+            idx_v = 0
+        elif st.session_state.vista_catalogo == "marcas":
+            idx_v = 1
+        else:
+            idx_v = None
+
+        modo_sel = st.radio(
+            "Vista:",
+            options=opciones_vista,
+            index=idx_v,
+            label_visibility="collapsed",
+            key="radio_modo_consulta"
+        )
+        
+        nuevo_m = None
+        if modo_sel:
+            nuevo_m = "productos" if "Productos" in modo_sel else "marcas"
+            
         if nuevo_m != st.session_state.vista_catalogo:
             st.session_state.vista_catalogo = nuevo_m
             st.rerun()
@@ -681,11 +734,9 @@ elif st.session_state.pantalla == "resultados":
             st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>Segmentación</h4></div>", unsafe_allow_html=True)
             
             if df_productos is not None:
-                # Obtener la lista de familias disponibles
                 if columna_familia_real and columna_familia_real in df_productos.columns:
                     lista_familias = sorted(df_productos[columna_familia_real].dropna().unique().tolist())
                 else:
-                    # Intenta encontrar cualquier columna adecuada
                     posibles_cols = [c for c in df_productos.columns if "familia" in normalizar_texto(c)]
                     if posibles_cols:
                         columna_familia_real = posibles_cols[0]
@@ -703,7 +754,6 @@ elif st.session_state.pantalla == "resultados":
                     st.session_state.filtro_familia = sel_f
                     st.rerun()
 
-            # Botón para limpiar filtros activos
             if st.session_state.filtro_familia != "-- Selecciona una familia --" or st.session_state.busqueda_rapida != "":
                 if st.button("🔄 Limpiar Filtros", use_container_width=True):
                     st.session_state.filtro_familia = "-- Selecciona una familia --"
@@ -714,8 +764,13 @@ elif st.session_state.pantalla == "resultados":
     # PANEL DE RESULTADOS Y PRODUCTOS (LADO DERECHO)
     # -------------------------------------------------------------
     with col_panel_resultados:
-        if st.session_state.vista_catalogo == "productos":
-            if df_productos is None:
+        if st.session_state.vista_catalogo is None:
+            st.info("👈 **Por favor selecciona un Modo de Consulta** (Catálogo de Productos o Listado de Marcas) en el panel izquierdo para comenzar.")
+        
+        elif st.session_state.vista_catalogo == "productos":
+            if st.session_state.filtro_familia == "-- Selecciona una familia --":
+                st.info("👈 **Por favor selecciona una familia** en el panel izquierdo para consultar sus productos.")
+            elif df_productos is None:
                 st.error("⚠️ No se pudo cargar 'productos.csv'. Asegúrate de que el archivo esté en la carpeta del proyecto.")
             else:
                 df_filtrado = df_productos.copy()
@@ -750,14 +805,12 @@ elif st.session_state.pantalla == "resultados":
 
                 # Mostrar Resultados y Checkboxes
                 if not df_filtrado.empty:
-                    # Mostrar Tabla General
                     cols_a_mostrar = [c for c in st.session_state.columnas_seleccionadas if c in df_filtrado.columns]
                     st.dataframe(df_filtrado[cols_a_mostrar], use_container_width=True, hide_index=True, height=260)
                     
                     st.markdown("---")
                     st.markdown("#### 📌 Marcar productos de esta vista:")
                     
-                    # Iterar primeros 30 registros
                     for idx, row in df_filtrado.head(30).iterrows():
                         p_id = str(row.iloc[0]) if len(row) > 0 else f"PROD_{idx}"
                         
@@ -782,7 +835,7 @@ elif st.session_state.pantalla == "resultados":
                 else:
                     st.warning("⚠️ No se encontraron productos con los filtros seleccionados.")
 
-        else:
+        elif st.session_state.vista_catalogo == "marcas":
             st.markdown("<h4 style='color: #000000;'>🏷️ Listado de Marcas</h4>", unsafe_allow_html=True)
             st.markdown("---")
             if df_marcas is None:
