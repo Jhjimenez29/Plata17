@@ -637,8 +637,8 @@ elif st.session_state.pantalla == "resultados":
         # 1. Selección de Cliente
         st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>👤 Selección de Cliente</h4></div>", unsafe_allow_html=True)
         
-        # Opciones limpias sin "-- Seleccionar --"
-        opciones_modo = ["Uso libre / Consulta", "Cliente Preexistente", "Cliente Nuevo"]
+        # Opciones únicamente con las tres requeridas:
+        opciones_modo = ["Cliente Preexistente", "Cliente Nuevo", "Uso libre / Consulta"]
         
         val_actual = st.session_state.tipo_cliente_seleccion
         idx_m = opciones_modo.index(val_actual) if val_actual in opciones_modo else 0
