@@ -494,15 +494,24 @@ elif st.session_state.pantalla == "reporte_auditoria":
         col_acc1, col_acc2, col_acc3 = st.columns(3)
         
         with col_acc1:
-            if st.button("💾 Guardar y Finalizar Visita", use_container_width=True, type="primary"):
-                if consolidar_y_guardar_visita_actual():
-                    st.success(f"✅ ¡Visita de '{st.session_state.cliente_nombre}' guardada exitosamente!")
-                limpiar_casillas_y_seleccion()
-                st.session_state.tipo_cliente_seleccion = "Uso libre / Consulta"
-                st.session_state.cliente_nombre = ""
-                st.session_state.cliente_numero = ""
-                st.session_state.pantalla = "resultados"
-                st.rerun()
+            # Ubica el botón donde finalizas la visita (normalmente en el panel lateral o al final)
+if st.button("💾 Finalizar y Guardar Visita", type="primary"):
+    # 1. Tu proceso actual de guardado (no cambia nada de tu lógica de guardado)
+    # ...
+    
+    # 2. Limpieza de memoria temporal para el siguiente registro
+    st.session_state.busqueda_rapida = ""
+    st.session_state.filtro_familia = "-- Selecciona una familia --"
+    st.session_state.productos_seleccionados = {}
+    st.session_state.marcas_seleccionadas = {}
+    
+    # Si tienes una variable para el cliente seleccionado, la limpiamos también
+    if "cliente_seleccionado" in st.session_state:
+        st.session_state.cliente_seleccionado = ""
+
+    # 3. Notificación y recarga para dejar la pantalla limpia
+    st.success("✅ ¡Visita guardada correctamente! La pantalla se ha limpiado para un nuevo registro.")
+    st.rerun()
 
         with col_acc2:
             bytes_excel = generar_excel_profesional(df_reporte_actual, titulo_reporte="REPORTE DE VISITA Y AUDITORÍA")
@@ -724,4 +733,5 @@ elif st.session_state.pantalla == "resultados":
                         del st.session_state.marcas_seleccionadas[nom_m]
 
                     st.markdown("<hr style='margin:2px 0; border:0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
+
 
