@@ -8,6 +8,7 @@ import unicodedata
 # Librerías para formato avanzado de Excel
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 # ==========================================
 # 1. CONFIGURACIÓN E INICIALIZACIÓN
@@ -16,10 +17,9 @@ st.set_page_config(page_title="Catálogo & Auditoría", page_icon="📱", layout
 
 CLAVE_SUPERVISOR = "super123"
 
-# Estilos CSS con acentos en ROJO para radio buttons y controles
+# Estilos CSS
 st.markdown("""
     <style>
-    /* Estilo de tarjetas suaves */
     .sombra-tenue {
         background-color: #F8FAFC;
         border: 1px solid #E2E8F0;
@@ -71,7 +71,8 @@ def inicializar_estado_sesion():
         "cliente_nombre": "",
         "cliente_numero": "",
         "productos_seleccionados": {},
-        "marcas_seleccionadas": {}
+        "marcas_seleccionadas": {},
+        "target_eliminar_historial": []  # Guarda los índices que se van a eliminar
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -90,7 +91,6 @@ def normalizar_texto(texto):
 
 def reiniciar_pantalla_total():
     """Limpia la selección de productos, marcas, cliente y restablece los controles visuales"""
-    # 1. Eliminar claves asociadas a checkboxes, selectbox y widgets dinámicos de la sesión
     keys_a_borrar = [
         k for k in st.session_state.keys() 
         if k.startswith("chk_p_") or k.startswith("chk_m_") or 
@@ -100,7 +100,6 @@ def reiniciar_pantalla_total():
     for key in keys_a_borrar:
         del st.session_state[key]
     
-    # 2. Resetear variables de estado a su forma neutral inicial
     st.session_state.productos_seleccionados = {}
     st.session_state.marcas_seleccionadas = {}
     st.session_state.tipo_cliente_seleccion = "Uso libre / Consulta"
@@ -109,6 +108,7 @@ def reiniciar_pantalla_total():
     st.session_state.vista_catalogo = None
     st.session_state.filtro_familia = "-- Selecciona una familia --"
     st.session_state.busqueda_rapida = ""
+    st.session_state.target_eliminar_historial = []
 
 # ==========================================
 # 3. GESTIÓN DE ARCHIVOS Y PERSISTENCIA (CSV/DATOS)
@@ -179,10 +179,15 @@ def cargar_historial_maestro():
     archivo = "historial_revisiones.csv"
     if os.path.exists(archivo):
         try:
-            return pd.read_csv(archivo, encoding='utf-8')
+            df = pd.read_csv(archivo, encoding='utf-8', dtype=str)
+            return df
         except Exception:
             pass
     return pd.DataFrame()
+
+def guardar_historial_maestro_completo(df):
+    archivo = "historial_revisiones.csv"
+    df.to_csv(archivo, index=False, encoding='utf-8')
 
 def guardar_en_historial_maestro(df_nuevas_filas):
     archivo = "historial_revisiones.csv"
@@ -205,7 +210,6 @@ def obtener_ultima_auditoria(nombre_cliente, num_cliente):
     return None
 
 def consolidar_visita_actual():
-    """Genera el DataFrame unificado con las selecciones de la visita"""
     nombre_c = st.session_state.cliente_nombre or "Cliente General"
     num_c = st.session_state.cliente_numero or "1001"
     
@@ -254,13 +258,11 @@ def consolidar_y_guardar_visita_actual():
 # 4. MOTOR DE GENERACIÓN DE EXCEL PROFESIONAL
 # ==========================================
 def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO"):
-    """Genera un archivo Excel con formato profesional"""
     wb = Workbook()
     ws = wb.active
     ws.title = "Reporte_Auditoria"
     ws.views.sheetView[0].showGridLines = True
 
-    # Estilos
     fuente_titulo = Font(name="Calibri", size=16, bold=True, color="FFFFFF")
     fuente_subtitulo = Font(name="Calibri", size=11, italic=True, color="D9D9D9")
     fuente_meta_bold = Font(name="Calibri", size=10, bold=True, color="1F497D")
@@ -279,7 +281,6 @@ def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO
         bottom=Side(style='thin', color='D9D9D9')
     )
 
-    # Encabezado
     ws.merge_cells('A1:F1')
     ws['A1'] = f"  {titulo_reporte.upper()}"
     ws['A1'].font = fuente_titulo
@@ -295,9 +296,16 @@ def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO
     ws.row_dimensions[1].height = 25
     ws.row_dimensions[2].height = 18
 
-    # Resumen
-    nombre_cli = st.session_state.cliente_nombre or "Cliente General"
-    num_cli = st.session_state.cliente_numero or "N/A"
+    if "Nombre Cliente" in df.columns and not df["Nombre Cliente"].empty:
+        nombre_cli = df["Nombre Cliente"].iloc[0]
+    else:
+        nombre_cli = st.session_state.cliente_nombre or "Cliente General"
+
+    if "Numero Cliente" in df.columns and not df["Numero Cliente"].empty:
+        num_cli = df["Numero Cliente"].iloc[0]
+    else:
+        num_cli = st.session_state.cliente_numero or "N/A"
+
     total_prod = len(df[df["Tipo Registro"] == "PRODUCTO"]) if "Tipo Registro" in df.columns else 0
     total_marcas = len(df[df["Tipo Registro"] == "MARCA"]) if "Tipo Registro" in df.columns else 0
 
@@ -314,7 +322,6 @@ def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO
         ws.cell(row=row_idx, column=5, value=r[3]).font = fuente_meta_val
         row_idx += 1
 
-    # Tabla de Datos
     start_row = 7
     df_export = df.drop(columns=["Fecha_Hora"], errors="ignore")
     
@@ -338,7 +345,7 @@ def generar_excel_profesional(df, titulo_reporte="REPORTE DE AUDITORÍA DE CAMPO
 
     for col in ws.columns:
         max_len = 0
-        col_letter = col[0].column_letter
+        col_letter = get_column_letter(col[0].column)
         for cell in col:
             if cell.row >= start_row and cell.value:
                 max_len = max(max_len, len(str(cell.value)))
@@ -545,7 +552,7 @@ elif st.session_state.pantalla == "reporte_auditoria":
                 st.session_state.pantalla = "resultados"
                 st.rerun()
 
-# --- PANTALLA: HISTORIAL GENERAL ---
+# --- PANTALLA: HISTORIAL GENERAL Y REPORTES ---
 elif st.session_state.pantalla == "historial":
     col_h1, col_h2 = st.columns([7, 3])
     with col_h1:
@@ -561,44 +568,178 @@ elif st.session_state.pantalla == "historial":
     if df_historial.empty:
         st.info("ℹ️ Aún no hay visitas guardadas en el historial.")
     else:
-        st.markdown("#### 🔍 Filtros de Consulta")
-        col_f1, col_f2 = st.columns(2)
+        st.markdown("#### 🔍 Filtros para Consulta y Edición")
+        col_f1, col_f2, col_f3 = st.columns(3)
         opcion_default = "-- Seleccionar --"
+        opcion_todos = "Todos"
+        
+        opciones_clientes = [opcion_default, opcion_todos]
+        if "Nombre Cliente" in df_historial.columns and "Numero Cliente" in df_historial.columns:
+            clientes_unicos = df_historial[["Nombre Cliente", "Numero Cliente"]].drop_duplicates()
+            for _, r in clientes_unicos.iterrows():
+                nom = str(r["Nombre Cliente"]).strip()
+                num = str(r["Numero Cliente"]).strip()
+                if nom or num:
+                    opciones_clientes.append(f"{num} - {nom}")
         
         with col_f1:
-            cliente_sel = st.selectbox("Filtrar por Cliente:", options=[opcion_default] + sorted(df_historial["Nombre Cliente"].dropna().unique().tolist()))
+            cliente_sel_str = st.selectbox("Filtrar por Cliente (Número o Nombre):", options=opciones_clientes)
+        
         with col_f2:
-            fecha_sel = st.selectbox("Filtrar por Fecha:", options=[opcion_default] + sorted(df_historial["Fecha"].dropna().unique().tolist(), reverse=True))
+            fechas_opciones = sorted(df_historial["Fecha"].dropna().unique().tolist(), reverse=True) if "Fecha" in df_historial.columns else []
+            fecha_sel = st.selectbox("Filtrar por Fecha:", options=[opcion_default] + fechas_opciones)
 
-        filtro_cli = (cliente_sel != opcion_default)
-        filtro_fec = (fecha_sel != opcion_default)
+        with col_f3:
+            busqueda_num_cli = st.text_input("O busca directamente por Número de Cliente:", placeholder="Ej: 588816")
 
-        if filtro_cli or filtro_fec:
+        # Aplicar filtros manteniendo los índices originales para el borrado seguro
+        if cliente_sel_str == opcion_default and not busqueda_num_cli.strip():
+            df_filtrado = pd.DataFrame(columns=df_historial.columns)
+        elif cliente_sel_str == opcion_todos:
             df_filtrado = df_historial.copy()
-            if filtro_cli:
-                df_filtrado = df_filtrado[df_filtrado["Nombre Cliente"] == cliente_sel]
-            if filtro_fec:
-                df_filtrado = df_filtrado[df_filtrado["Fecha"] == fecha_sel]
-
-            st.markdown("---")
-            st.markdown(f"**Registros encontrados:** `{len(df_filtrado)}` filas")
-            
-            if not df_filtrado.empty:
-                st.dataframe(df_filtrado.drop(columns=["Fecha_Hora"], errors="ignore"), use_container_width=True, hide_index=True, height=350)
-                
-                bytes_excel_h = generar_excel_profesional(df_filtrado, titulo_reporte="HISTORIAL DE REVISIONES Y AUDITORÍAS")
-                st.download_button(
-                    label="📥 Descargar Historial Filtrado (Excel Pro)",
-                    data=bytes_excel_h,
-                    file_name=f"Historial_Consulta_{datetime.date.today()}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                    type="primary"
-                )
-            else:
-                st.warning("⚠️ No se encontraron registros para los filtros seleccionados.")
+        elif cliente_sel_str != opcion_default:
+            num_extraido = cliente_sel_str.split(" - ")[0].strip()
+            df_filtrado = df_historial[df_historial["Numero Cliente"].astype(str).str.strip() == num_extraido].copy()
         else:
-            st.info("💡 Selecciona un filtro para consultar los registros guardados.")
+            df_filtrado = df_historial.copy()
+
+        if busqueda_num_cli.strip():
+            df_filtrado = df_historial[df_historial["Numero Cliente"].astype(str).str.contains(busqueda_num_cli.strip(), case=False, na=False)].copy()
+
+        if fecha_sel != opcion_default and not df_filtrado.empty:
+            df_filtrado = df_filtrado[df_filtrado["Fecha"] == fecha_sel]
+
+        # Despliegue en pestañas
+        if cliente_sel_str == opcion_default and not busqueda_num_cli.strip():
+            pass  # Estado limpio inicial
+        elif not df_filtrado.empty:
+            st.markdown("---")
+            
+            tab_vista, tab_eliminar = st.tabs(["👁️ Vista / Reporte Excel", "🗑️ Gestionar / Eliminar Registros"])
+
+            # --- PESTAÑA VISTA CON EDICIÓN/ELIMINACIÓN DIRECTA EN TABLA NATIVA ---
+            with tab_vista:
+                # Contenedor superior ubicado al INICIO de la tabla
+                container_superior = st.container()
+
+                # Creamos copia para la tabla interactiva sin alterar df_historial original
+                df_editor = df_filtrado.drop(columns=["Fecha_Hora"], errors="ignore").copy()
+                df_editor["Acción"] = "🗑️"                   # Indicador visual
+                df_editor["Seleccionar"] = False            # Casilla de selección ubicada al FINAL (última columna)
+
+                # Tabla Nativa Interactiva (data_editor)
+                edited_df = st.data_editor(
+                    df_editor,
+                    column_config={
+                        "Seleccionar": st.column_config.CheckboxColumn(
+                            "Seleccionar",
+                            help="Marca para eliminar",
+                            default=False
+                        ),
+                        "Acción": st.column_config.TextColumn(
+                            "Acción",
+                            help="Registro marcado para gestión",
+                            disabled=True
+                        )
+                    },
+                    disabled=[c for c in df_editor.columns if c != "Seleccionar"],
+                    hide_index=True,
+                    use_container_width=True,
+                    height=320,
+                    key="editor_tabla_historial"
+                )
+
+                # Capturar las filas que el usuario marcó
+                filas_seleccionadas_indices = df_filtrado.index[edited_df["Seleccionar"]].tolist()
+
+                # Llenamos el contenedor superior (al inicio de la tabla)
+                with container_superior:
+                    col_top_v1, col_top_v2 = st.columns([5, 5])
+                    
+                    # 1. Botón "Descargar reporte en excel" a la IZQUIERDA
+                    with col_top_v1:
+                        num_cli_f = "TODOS" if cliente_sel_str == opcion_todos else (df_filtrado['Numero Cliente'].iloc[0] if 'Numero Cliente' in df_filtrado.columns else 'General')
+                        bytes_excel_h = generar_excel_profesional(df_filtrado, titulo_reporte=f"REPORTE DE HISTORIAL - CLIENTE {num_cli_f}")
+                        st.download_button(
+                            label="📥 Descargar reporte en Excel",
+                            data=bytes_excel_h,
+                            file_name=f"Reporte_Cliente_{num_cli_f}_{datetime.date.today()}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True,
+                            type="primary"
+                        )
+                        st.caption(f"Registros mostrados: `{len(df_filtrado)}` filas")
+
+                    # 3. Botón "Eliminar registros seleccionados" al inicio pero a la DERECHA
+                    with col_top_v2:
+                        if len(filas_seleccionadas_indices) > 0:
+                            if st.button(f"🚨 Eliminar ({len(filas_seleccionadas_indices)}) Registro(s) Seleccionado(s)", type="primary", use_container_width=True):
+                                st.session_state.target_eliminar_historial = filas_seleccionadas_indices
+                                st.rerun()
+
+            # --- PESTAÑA TRADICIONAL DE GESTIÓN (MANTENIDA INTACTA) ---
+            with tab_eliminar:
+                st.markdown("#### 🗑️ Eliminación por Listado Detallado")
+                seleccionar_todos = st.checkbox("☑️ Seleccionar Todos los Registros de la Vista", value=False)
+                filas_marcadas = []
+                
+                st.markdown("<hr style='margin:8px 0; border:0; border-top: 2px solid #E2E8F0;'>", unsafe_allow_html=True)
+                
+                for original_idx, row in df_filtrado.iterrows():
+                    c_chk, c_info, c_btn = st.columns([0.6, 10.4, 1])
+                    with c_chk:
+                        marcado = st.checkbox("", value=seleccionar_todos, key=f"chk_del_tab_{original_idx}")
+                        if marcado:
+                            filas_marcadas.append(original_idx)
+
+                    with c_info:
+                        txt_cli = f"**Cliente:** {row.get('Nombre Cliente', '')} ({row.get('Numero Cliente', '')})"
+                        txt_det = f"**{row.get('Tipo Registro', '')}:** {row.get('Identificador / Código', '')} - {row.get('Descripción / Detalle', '')}"
+                        txt_fec = f"| **Fecha:** {row.get('Fecha', '')} | **Ubicación:** {row.get('Ubicación', '')}"
+                        st.markdown(f"{txt_cli} | {txt_det} {txt_fec}")
+
+                    with c_btn:
+                        if st.button("🗑️", key=f"btn_del_tab_single_{original_idx}", help="Eliminar este registro"):
+                            st.session_state.target_eliminar_historial = [original_idx]
+
+                    st.markdown("<hr style='margin:4px 0; border:0; border-top: 1px solid #F1F5F9;'>", unsafe_allow_html=True)
+
+                if len(filas_marcadas) > 0:
+                    if st.button(f"🚨 Eliminar Marcados en Lista ({len(filas_marcadas)})", type="primary", use_container_width=True):
+                        st.session_state.target_eliminar_historial = filas_marcadas
+
+            # --- PANEL DE SEGURIDAD / CONFIRMACIÓN Y CLAVE DE SUPERVISOR ---
+            if len(st.session_state.target_eliminar_historial) > 0:
+                st.markdown("---")
+                num_a_borrar = len(st.session_state.target_eliminar_historial)
+                
+                with st.expander(f"⚠️ CONFIRMACIÓN DE ELIMINACIÓN ({num_a_borrar} REGISTRO/S)", expanded=True):
+                    st.warning(f"¿Estás seguro de que deseas eliminar permanentemente **{num_a_borrar}** registro(s) del historial maestro?")
+                    
+                    col_p1, col_p2, col_p3 = st.columns([4, 4, 2])
+                    with col_p1:
+                        clave_elim = st.text_input("🔒 Introduce Clave de Supervisor:", type="password", key="pass_del_hist_modal")
+                    with col_p2:
+                        st.write("")
+                        st.write("")
+                        if st.button("💥 Confirmar Eliminación", type="primary", use_container_width=True):
+                            if clave_elim == CLAVE_SUPERVISOR:
+                                df_hist_actualizado = df_historial.drop(index=st.session_state.target_eliminar_historial).reset_index(drop=True)
+                                guardar_historial_maestro_completo(df_hist_actualizado)
+                                st.session_state.target_eliminar_historial = []
+                                st.success(f"✅ ¡Se han eliminado {num_a_borrar} registro(s) correctamente!")
+                                st.rerun()
+                            else:
+                                st.error("❌ Clave de supervisor incorrecta.")
+                    with col_p3:
+                        st.write("")
+                        st.write("")
+                        if st.button("❌ Cancelar", use_container_width=True):
+                            st.session_state.target_eliminar_historial = []
+                            st.rerun()
+        else:
+            st.markdown("---")
+            st.warning("⚠️ No se encontraron registros que coincidan con la búsqueda.")
 
 # --- PANTALLA PRINCIPAL: BÚSQUEDA Y AUDITORÍA ---
 elif st.session_state.pantalla == "resultados":
@@ -630,25 +771,15 @@ elif st.session_state.pantalla == "resultados":
     st.markdown("---")
     col_panel_filtros, col_panel_resultados = st.columns([3, 7])
     
-    # -------------------------------------------------------------
-    # PANEL LATERAL DE FILTROS Y SEGMENTACIÓN (LADO IZQUIERDO)
-    # -------------------------------------------------------------
+    # PANEL LATERAL DE FILTROS Y SEGMENTACIÓN
     with col_panel_filtros:
-        # 1. Selección de Cliente
         st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>👤 Selección de Cliente</h4></div>", unsafe_allow_html=True)
         
-        # Opciones únicamente con las tres requeridas:
         opciones_modo = ["Cliente Preexistente", "Cliente Nuevo", "Uso libre / Consulta"]
-        
         val_actual = st.session_state.tipo_cliente_seleccion
         idx_m = opciones_modo.index(val_actual) if val_actual in opciones_modo else 0
         
-        tipo_cli_sel = st.radio(
-            "Modo de atención:",
-            options=opciones_modo,
-            index=idx_m,
-            key="radio_tipo_cliente"
-        )
+        tipo_cli_sel = st.radio("Modo de atención:", options=opciones_modo, index=idx_m, key="radio_tipo_cliente")
         
         if tipo_cli_sel != st.session_state.tipo_cliente_seleccion:
             st.session_state.tipo_cliente_seleccion = tipo_cli_sel
@@ -685,7 +816,6 @@ elif st.session_state.pantalla == "resultados":
             st.session_state.cliente_nombre = ""
             st.session_state.cliente_numero = ""
 
-        # Botones de Acción (Confirmación y Limpieza)
         if total_sel > 0:
             st.markdown("---")
             if st.button("💾 Confirmar y Guardar Visita", use_container_width=True, type="primary"):
@@ -700,26 +830,13 @@ elif st.session_state.pantalla == "resultados":
                 st.toast("🧹 Vista limpiada por completo.")
                 st.rerun()
 
-        # 2. Modo de Consulta (Vista)
         st.markdown("---")
         st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>Modo de Consulta</h4></div>", unsafe_allow_html=True)
         
         opciones_vista = ["🔎 Catálogo de Productos", "🏷️ Listado de Marcas"]
-        
-        if st.session_state.vista_catalogo == "productos":
-            idx_v = 0
-        elif st.session_state.vista_catalogo == "marcas":
-            idx_v = 1
-        else:
-            idx_v = None
+        idx_v = 0 if st.session_state.vista_catalogo == "productos" else (1 if st.session_state.vista_catalogo == "marcas" else None)
 
-        modo_sel = st.radio(
-            "Vista:",
-            options=opciones_vista,
-            index=idx_v,
-            label_visibility="collapsed",
-            key="radio_modo_consulta"
-        )
+        modo_sel = st.radio("Vista:", options=opciones_vista, index=idx_v, label_visibility="collapsed", key="radio_modo_consulta")
         
         nuevo_m = None
         if modo_sel:
@@ -729,7 +846,6 @@ elif st.session_state.pantalla == "resultados":
             st.session_state.vista_catalogo = nuevo_m
             st.rerun()
 
-        # 3. Segmentación por Familia
         if st.session_state.vista_catalogo == "productos":
             st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>Segmentación</h4></div>", unsafe_allow_html=True)
             
@@ -760,41 +876,35 @@ elif st.session_state.pantalla == "resultados":
                     st.session_state.busqueda_rapida = ""
                     st.rerun()
 
-    # -------------------------------------------------------------
-    # PANEL DE RESULTADOS Y PRODUCTOS (LADO DERECHO)
-    # -------------------------------------------------------------
+    # PANEL DE RESULTADOS Y PRODUCTOS
     with col_panel_resultados:
         if st.session_state.vista_catalogo is None:
-            st.info("👈 **Por favor selecciona un Modo de Consulta** (Catálogo de Productos o Listado de Marcas) en el panel izquierdo para comenzar.")
+            st.info("👈 **Por favor selecciona un Modo de Consulta** en el panel izquierdo.")
         
         elif st.session_state.vista_catalogo == "productos":
             if st.session_state.filtro_familia == "-- Selecciona una familia --":
-                st.info("👈 **Por favor selecciona una familia** en el panel izquierdo para consultar sus productos.")
+                st.info("👈 **Por favor selecciona una familia** para consultar sus productos.")
             elif df_productos is None:
-                st.error("⚠️ No se pudo cargar 'productos.csv'. Asegúrate de que el archivo esté en la carpeta del proyecto.")
+                st.error("⚠️ No se pudo cargar 'productos.csv'.")
             else:
                 df_filtrado = df_productos.copy()
                 
-                # Caja de Búsqueda Rápida
                 busqueda = st.text_input("🔤 Búsqueda rápida:", value=st.session_state.busqueda_rapida, placeholder="Escribe código, clave o descripción...")
 
                 if busqueda != st.session_state.busqueda_rapida:
                     st.session_state.busqueda_rapida = busqueda
                     st.rerun()
 
-                # Aplicar Filtro de Familia
                 fam_activa = st.session_state.filtro_familia != "-- Selecciona una familia --"
                 if fam_activa and columna_familia_real and columna_familia_real in df_filtrado.columns:
                     df_filtrado = df_filtrado[df_filtrado[columna_familia_real] == st.session_state.filtro_familia]
 
-                # Aplicar Filtro de Texto
                 if st.session_state.busqueda_rapida.strip():
                     cond = pd.Series(False, index=df_filtrado.index)
                     for col_val in df_filtrado.columns:
                         cond |= df_filtrado[col_val].astype(str).str.contains(st.session_state.busqueda_rapida, case=False, na=False)
                     df_filtrado = df_filtrado[cond]
 
-                # Mostrar Tarjetas Informativas
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Familia Seleccionada</span><br><strong>{st.session_state.filtro_familia if fam_activa else 'Todas'}</strong></div>", unsafe_allow_html=True)
@@ -803,7 +913,6 @@ elif st.session_state.pantalla == "resultados":
                 with c3:
                     st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Total Catálogo</span><br><strong>{len(df_productos)}</strong></div>", unsafe_allow_html=True)
 
-                # Mostrar Resultados y Checkboxes
                 if not df_filtrado.empty:
                     cols_a_mostrar = [c for c in st.session_state.columnas_seleccionadas if c in df_filtrado.columns]
                     st.dataframe(df_filtrado[cols_a_mostrar], use_container_width=True, hide_index=True, height=260)
