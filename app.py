@@ -622,35 +622,34 @@ elif st.session_state.pantalla == "historial":
                 # Contenedor superior ubicado al INICIO de la tabla
                 container_superior = st.container()
 
-                # Creamos copia para la tabla interactiva sin alterar df_historial original
-                df_editor = df_filtrado.drop(columns=["Fecha_Hora"], errors="ignore").copy()
-                df_editor["Acción"] = "🗑️"                   # Indicador visual
-                df_editor["Seleccionar"] = False            # Casilla de selección ubicada al FINAL (última columna)
+                # Vista de solo lectura, con todas las columnas, tipo hoja de cálculo
+                df_vista_grid = df_filtrado.drop(columns=["Fecha_Hora"], errors="ignore")
+                st.dataframe(df_vista_grid, hide_index=True, use_container_width=True, height=320)
 
-                # Tabla Nativa Interactiva (data_editor)
-                edited_df = st.data_editor(
-                    df_editor,
-                    column_config={
-                        "Seleccionar": st.column_config.CheckboxColumn(
-                            "Seleccionar",
-                            help="Marca para eliminar",
-                            default=False
-                        ),
-                        "Acción": st.column_config.TextColumn(
-                            "Acción",
-                            help="Registro marcado para gestión",
-                            disabled=True
-                        )
-                    },
-                    disabled=[c for c in df_editor.columns if c != "Seleccionar"],
-                    hide_index=True,
-                    use_container_width=True,
-                    height=320,
-                    key="editor_tabla_historial"
-                )
+                st.markdown("##### Selecciona o elimina registros individuales:")
+                st.markdown("<hr style='margin:8px 0; border:0; border-top: 2px solid #E2E8F0;'>", unsafe_allow_html=True)
 
-                # Capturar las filas que el usuario marcó
-                filas_seleccionadas_indices = df_filtrado.index[edited_df["Seleccionar"]].tolist()
+                filas_seleccionadas_indices = []
+
+                for original_idx, row in df_filtrado.iterrows():
+                    c_chk, c_info, c_btn = st.columns([0.6, 10.4, 1])
+                    with c_chk:
+                        marcado = st.checkbox("", value=False, key=f"chk_vista_{original_idx}")
+                        if marcado:
+                            filas_seleccionadas_indices.append(original_idx)
+
+                    with c_info:
+                        txt_cli = f"**Cliente:** {row.get('Nombre Cliente', '')} ({row.get('Numero Cliente', '')})"
+                        txt_det = f"**{row.get('Tipo Registro', '')}:** {row.get('Identificador / Código', '')} - {row.get('Descripción / Detalle', '')}"
+                        txt_fec = f"| **Fecha:** {row.get('Fecha', '')} | **Ubicación:** {row.get('Ubicación', '')}"
+                        st.markdown(f"{txt_cli} | {txt_det} {txt_fec}")
+
+                    with c_btn:
+                        if st.button("🗑️", key=f"btn_vista_single_{original_idx}", help="Eliminar únicamente este registro"):
+                            st.session_state.target_eliminar_historial = [original_idx]
+                            st.rerun()
+
+                    st.markdown("<hr style='margin:4px 0; border:0; border-top: 1px solid #F1F5F9;'>", unsafe_allow_html=True)
 
                 # Llenamos el contenedor superior (al inicio de la tabla)
                 with container_superior:
@@ -708,35 +707,32 @@ elif st.session_state.pantalla == "historial":
                     if st.button(f"🚨 Eliminar Marcados en Lista ({len(filas_marcadas)})", type="primary", use_container_width=True):
                         st.session_state.target_eliminar_historial = filas_marcadas
 
-            # --- PANEL DE SEGURIDAD / CONFIRMACIÓN Y CLAVE DE SUPERVISOR ---
-            if len(st.session_state.target_eliminar_historial) > 0:
-                st.markdown("---")
+            # --- PANEL DE SEGURIDAD / CONFIRMACIÓN Y CLAVE DE SUPERVISOR (VENTANA EMERGENTE) ---
+            @st.dialog("⚠️ Confirmación de Eliminación")
+            def dialogo_confirmar_eliminacion_historial():
                 num_a_borrar = len(st.session_state.target_eliminar_historial)
-                
-                with st.expander(f"⚠️ CONFIRMACIÓN DE ELIMINACIÓN ({num_a_borrar} REGISTRO/S)", expanded=True):
-                    st.warning(f"¿Estás seguro de que deseas eliminar permanentemente **{num_a_borrar}** registro(s) del historial maestro?")
-                    
-                    col_p1, col_p2, col_p3 = st.columns([4, 4, 2])
-                    with col_p1:
-                        clave_elim = st.text_input("🔒 Introduce Clave de Supervisor:", type="password", key="pass_del_hist_modal")
-                    with col_p2:
-                        st.write("")
-                        st.write("")
-                        if st.button("💥 Confirmar Eliminación", type="primary", use_container_width=True):
-                            if clave_elim == CLAVE_SUPERVISOR:
-                                df_hist_actualizado = df_historial.drop(index=st.session_state.target_eliminar_historial).reset_index(drop=True)
-                                guardar_historial_maestro_completo(df_hist_actualizado)
-                                st.session_state.target_eliminar_historial = []
-                                st.success(f"✅ ¡Se han eliminado {num_a_borrar} registro(s) correctamente!")
-                                st.rerun()
-                            else:
-                                st.error("❌ Clave de supervisor incorrecta.")
-                    with col_p3:
-                        st.write("")
-                        st.write("")
-                        if st.button("❌ Cancelar", use_container_width=True):
+                st.warning(f"¿Estás seguro de que deseas eliminar permanentemente **{num_a_borrar}** registro(s) del historial maestro?")
+
+                clave_elim = st.text_input("🔒 Introduce Clave de Supervisor:", type="password", key="pass_del_hist_modal")
+
+                col_p2, col_p3 = st.columns(2)
+                with col_p2:
+                    if st.button("💥 Confirmar Eliminación", type="primary", use_container_width=True):
+                        if clave_elim == CLAVE_SUPERVISOR:
+                            df_hist_actualizado = df_historial.drop(index=st.session_state.target_eliminar_historial).reset_index(drop=True)
+                            guardar_historial_maestro_completo(df_hist_actualizado)
                             st.session_state.target_eliminar_historial = []
+                            st.success(f"✅ ¡Se han eliminado {num_a_borrar} registro(s) correctamente!")
                             st.rerun()
+                        else:
+                            st.error("❌ Clave de supervisor incorrecta.")
+                with col_p3:
+                    if st.button("❌ Cancelar", use_container_width=True):
+                        st.session_state.target_eliminar_historial = []
+                        st.rerun()
+
+            if len(st.session_state.target_eliminar_historial) > 0:
+                dialogo_confirmar_eliminacion_historial()
         else:
             st.markdown("---")
             st.warning("⚠️ No se encontraron registros que coincidan con la búsqueda.")
