@@ -1,7 +1,9 @@
 from io import BytesIO
+import base64
 import datetime
 import os
 import pandas as pd
+import requests
 import streamlit as st
 import unicodedata
 
@@ -154,8 +156,45 @@ def cargar_catalogo_clientes():
             pass
     return pd.DataFrame(columns=["Numero Cliente", "Nombre Cliente"])
 
+# --- RESPALDO AUTOMÁTICO A GITHUB ---
+def respaldar_archivo_en_github(nombre_archivo, mensaje_commit):
+    """Sube el archivo local (ya guardado en disco) al repositorio de GitHub como respaldo.
+    Si no hay credenciales configuradas en Secrets, no hace nada (no rompe la app)."""
+    try:
+        token = st.secrets["GITHUB_TOKEN"]
+        repo = st.secrets["GITHUB_REPO"]
+    except Exception:
+        return
+
+    try:
+        with open(nombre_archivo, "rb") as f:
+            contenido_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+        url = f"https://api.github.com/repos/{repo}/contents/{nombre_archivo}"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json"
+        }
+
+        # Obtenemos el SHA actual del archivo en GitHub (requerido para poder actualizarlo)
+        sha_actual = None
+        resp_get = requests.get(url, headers=headers, timeout=10)
+        if resp_get.status_code == 200:
+            sha_actual = resp_get.json().get("sha")
+
+        payload = {"message": mensaje_commit, "content": contenido_b64}
+        if sha_actual:
+            payload["sha"] = sha_actual
+
+        requests.put(url, headers=headers, json=payload, timeout=10)
+    except Exception:
+        # Si el respaldo falla (ej. sin internet), la app sigue funcionando con el archivo local
+        pass
+
+
 def guardar_catalogo_clientes_completo(df):
     df.to_csv("clientes_directorio.csv", index=False, encoding='utf-8')
+    respaldar_archivo_en_github("clientes_directorio.csv", "Respaldo automatico: clientes_directorio.csv")
 
 def guardar_cliente_directorio(num_cliente, nombre_cliente):
     num, nom = str(num_cliente).strip(), str(nombre_cliente).strip()
@@ -188,11 +227,13 @@ def cargar_historial_maestro():
 def guardar_historial_maestro_completo(df):
     archivo = "historial_revisiones.csv"
     df.to_csv(archivo, index=False, encoding='utf-8')
+    respaldar_archivo_en_github(archivo, "Respaldo automatico: historial_revisiones.csv")
 
 def guardar_en_historial_maestro(df_nuevas_filas):
     archivo = "historial_revisiones.csv"
     header = not os.path.exists(archivo)
     df_nuevas_filas.to_csv(archivo, mode='a', header=header, index=False, encoding='utf-8')
+    respaldar_archivo_en_github(archivo, "Respaldo automatico: nueva auditoria en historial_revisiones.csv")
 
 def obtener_ultima_auditoria(nombre_cliente, num_cliente):
     df_h = cargar_historial_maestro()
