@@ -663,34 +663,40 @@ elif st.session_state.pantalla == "historial":
                 # Contenedor superior ubicado al INICIO de la tabla
                 container_superior = st.container()
 
-                # Vista de solo lectura, con todas las columnas, tipo hoja de cálculo
-                df_vista_grid = df_filtrado.drop(columns=["Fecha_Hora"], errors="ignore")
-                st.dataframe(df_vista_grid, hide_index=True, use_container_width=True, height=320)
+                # Preparamos la tabla con las dos columnas de casillas integradas
+                df_editor = df_filtrado.drop(columns=["Fecha_Hora"], errors="ignore").copy()
+                df_editor["Seleccionar"] = False        # Casilla para borrado múltiple
+                df_editor["🗑️ Eliminar"] = False        # Casilla para borrado individual inmediato
 
-                st.markdown("##### Selecciona o elimina registros individuales:")
-                st.markdown("<hr style='margin:8px 0; border:0; border-top: 2px solid #E2E8F0;'>", unsafe_allow_html=True)
+                edited_df = st.data_editor(
+                    df_editor,
+                    column_config={
+                        "Seleccionar": st.column_config.CheckboxColumn(
+                            "Seleccionar",
+                            help="Marca para eliminar junto con otros registros seleccionados",
+                            default=False
+                        ),
+                        "🗑️ Eliminar": st.column_config.CheckboxColumn(
+                            "Eliminar",
+                            help="Marca para eliminar ÚNICAMENTE este registro de inmediato",
+                            default=False
+                        )
+                    },
+                    disabled=[c for c in df_editor.columns if c not in ["Seleccionar", "🗑️ Eliminar"]],
+                    hide_index=True,
+                    use_container_width=True,
+                    height=320,
+                    key="editor_tabla_historial_vista"
+                )
 
-                filas_seleccionadas_indices = []
+                # Capturar las filas marcadas para borrado múltiple (columna "Seleccionar")
+                filas_seleccionadas_indices = df_filtrado.index[edited_df["Seleccionar"]].tolist()
 
-                for original_idx, row in df_filtrado.iterrows():
-                    c_chk, c_info, c_btn = st.columns([0.6, 10.4, 1])
-                    with c_chk:
-                        marcado = st.checkbox("", value=False, key=f"chk_vista_{original_idx}")
-                        if marcado:
-                            filas_seleccionadas_indices.append(original_idx)
-
-                    with c_info:
-                        txt_cli = f"**Cliente:** {row.get('Nombre Cliente', '')} ({row.get('Numero Cliente', '')})"
-                        txt_det = f"**{row.get('Tipo Registro', '')}:** {row.get('Identificador / Código', '')} - {row.get('Descripción / Detalle', '')}"
-                        txt_fec = f"| **Fecha:** {row.get('Fecha', '')} | **Ubicación:** {row.get('Ubicación', '')}"
-                        st.markdown(f"{txt_cli} | {txt_det} {txt_fec}")
-
-                    with c_btn:
-                        if st.button("🗑️", key=f"btn_vista_single_{original_idx}", help="Eliminar únicamente este registro"):
-                            st.session_state.target_eliminar_historial = [original_idx]
-                            st.rerun()
-
-                    st.markdown("<hr style='margin:4px 0; border:0; border-top: 1px solid #F1F5F9;'>", unsafe_allow_html=True)
+                # Capturar la fila marcada para borrado individual inmediato (columna "Eliminar")
+                filas_accion_individual = df_filtrado.index[edited_df["🗑️ Eliminar"]].tolist()
+                if filas_accion_individual:
+                    st.session_state.target_eliminar_historial = filas_accion_individual
+                    st.rerun()
 
                 # Llenamos el contenedor superior (al inicio de la tabla)
                 with container_superior:
