@@ -696,7 +696,6 @@ elif st.session_state.pantalla == "historial":
                 filas_accion_individual = df_filtrado.index[edited_df["🗑️ Eliminar"]].tolist()
                 if filas_accion_individual:
                     st.session_state.target_eliminar_historial = filas_accion_individual
-                    st.rerun()
 
                 # Llenamos el contenedor superior (al inicio de la tabla)
                 with container_superior:
