@@ -768,6 +768,7 @@ elif st.session_state.pantalla == "historial":
                             df_hist_actualizado = df_historial.drop(index=st.session_state.target_eliminar_historial).reset_index(drop=True)
                             guardar_historial_maestro_completo(df_hist_actualizado)
                             st.session_state.target_eliminar_historial = []
+                            st.session_state.pop("editor_tabla_historial_vista", None)
                             st.success(f"✅ ¡Se han eliminado {num_a_borrar} registro(s) correctamente!")
                             st.rerun()
                         else:
@@ -775,6 +776,7 @@ elif st.session_state.pantalla == "historial":
                 with col_p3:
                     if st.button("❌ Cancelar", use_container_width=True):
                         st.session_state.target_eliminar_historial = []
+                        st.session_state.pop("editor_tabla_historial_vista", None)
                         st.rerun()
 
             if len(st.session_state.target_eliminar_historial) > 0:
