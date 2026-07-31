@@ -441,7 +441,7 @@ if df_productos is not None:
     if renombrar_dict:
         df_productos = df_productos.rename(columns=renombrar_dict)
 
-    st.session_state.columnas_seleccionadas = [c for c in df_productos.columns if c not in ["Fecha", "Fecha_Hora"]]
+    st.session_state.columnas_seleccionadas = [c for c in df_productos.columns if c not in ["Fecha", "Fecha_Hora", "Código", "Clave", "DescFam"]]
 
 # ==========================================
 # 6. VISTAS DE LA APLICACIÓN
