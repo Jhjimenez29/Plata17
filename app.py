@@ -918,13 +918,14 @@ elif st.session_state.pantalla == "resultados":
                         cond |= df_filtrado[col_val].astype(str).str.contains(st.session_state.busqueda_rapida, case=False, na=False)
                     df_filtrado = df_filtrado[cond]
 
-                c1, c2, c3 = st.columns(3)
-                with c1:
-                    st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Familia Seleccionada</span><br><strong>{st.session_state.filtro_familia if fam_activa else 'Todas'}</strong></div>", unsafe_allow_html=True)
-                with c2:
-                    st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Coincidencias</span><br><strong style='color:#2563EB;'>{len(df_filtrado)}</strong></div>", unsafe_allow_html=True)
-                with c3:
-                    st.markdown(f"<div class='sombra-tenue'><span style='color:#6B7280;font-size:11px;'>Total Catálogo</span><br><strong>{len(df_productos)}</strong></div>", unsafe_allow_html=True)
+                st.markdown(
+                    f"""<div style='text-align:center; margin: 10px 0 16px 0;'>
+                        <span style='background-color:#F97316; color:white; font-weight:bold; padding:8px 22px; border-radius:20px; font-size:14px; display:inline-block;'>
+                            🏷️ {st.session_state.filtro_familia if fam_activa else 'Todas'}
+                        </span>
+                    </div>""",
+                    unsafe_allow_html=True
+                )
 
                 if not df_filtrado.empty:
                     cols_a_mostrar = [c for c in st.session_state.columnas_seleccionadas if c in df_filtrado.columns]
