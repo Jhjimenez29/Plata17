@@ -125,6 +125,17 @@ def cargar_productos():
     return None
 
 @st.cache_data
+def cargar_lista_precios():
+    for enc in ["utf-8", "latin1"]:
+        try:
+            df = pd.read_csv("lista_precios.csv", encoding=enc)
+            if df is not None and not df.empty:
+                return df
+        except Exception:
+            continue
+    return None
+
+@st.cache_data
 def cargar_marcas():
     for n in ["marcas.csv", "Marcas.csv", "marcas.xlsx", "Marcas.xlsx"]:
         if n.endswith(".csv"):
@@ -845,14 +856,19 @@ elif st.session_state.pantalla == "resultados":
         st.markdown("---")
         st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>Modo de Consulta</h4></div>", unsafe_allow_html=True)
         
-        opciones_vista = ["🔎 Catálogo de Productos", "🏷️ Listado de Marcas"]
-        idx_v = 0 if st.session_state.vista_catalogo == "productos" else (1 if st.session_state.vista_catalogo == "marcas" else None)
+        opciones_vista = ["🔎 Catálogo de Productos", "🏷️ Listado de Marcas", "🔍 Búsqueda"]
+        idx_v = 0 if st.session_state.vista_catalogo == "productos" else (1 if st.session_state.vista_catalogo == "marcas" else (2 if st.session_state.vista_catalogo == "busqueda" else None))
 
         modo_sel = st.radio("Vista:", options=opciones_vista, index=idx_v, label_visibility="collapsed", key="radio_modo_consulta")
         
         nuevo_m = None
         if modo_sel:
-            nuevo_m = "productos" if "Productos" in modo_sel else "marcas"
+            if "Productos" in modo_sel:
+                nuevo_m = "productos"
+            elif "Marcas" in modo_sel:
+                nuevo_m = "marcas"
+            else:
+                nuevo_m = "busqueda"
             
         if nuevo_m != st.session_state.vista_catalogo:
             st.session_state.vista_catalogo = nuevo_m
@@ -986,3 +1002,28 @@ elif st.session_state.pantalla == "resultados":
                         del st.session_state.marcas_seleccionadas[nom_m]
 
                     st.markdown("<hr style='margin:2px 0; border:0; border-top: 1px solid #E2E8F0;'>", unsafe_allow_html=True)
+
+        elif st.session_state.vista_catalogo == "busqueda":
+            st.markdown("<h4 style='color: #000000;'>🔍 Búsqueda</h4>", unsafe_allow_html=True)
+            st.markdown("---")
+
+            df_precios = cargar_lista_precios()
+
+            if df_precios is None:
+                st.warning("⚠️ No se cargó 'lista_precios.csv'.")
+            else:
+                columnas_busqueda = [c for c in ["código", "clave", "descripción", "Descripción Familia"] if c in df_precios.columns]
+                columnas_visibles = [c for c in ["Descripción Familia", "código", "clave", "descripción"] if c in df_precios.columns]
+
+                texto_busqueda = st.text_input("🔍 Búsqueda:", placeholder="Escribe descripción, código, clave o familia...")
+
+                if texto_busqueda.strip():
+                    mascara = pd.Series(False, index=df_precios.index)
+                    for col in columnas_busqueda:
+                        mascara = mascara | df_precios[col].astype(str).str.contains(texto_busqueda.strip(), case=False, na=False)
+                    df_resultado_busqueda = df_precios[mascara]
+
+                    st.caption(f"Coincidencias: `{len(df_resultado_busqueda)}`")
+                    st.dataframe(df_resultado_busqueda[columnas_visibles], use_container_width=True, hide_index=True, height=400)
+                else:
+                    st.info("Escribe algo arriba para buscar en la lista de precios.")
