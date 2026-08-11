@@ -536,13 +536,29 @@ elif st.session_state.pantalla == "hd_consulta":
                 df_resultado_hd = df_hd[mascara_hd].sort_values(by="descripción", ascending=True) if "descripción" in df_hd.columns else df_hd[mascara_hd]
 
                 st.caption(f"Coincidencias: `{len(df_resultado_hd)}`")
-                st.dataframe(df_resultado_hd[columnas_hd_visibles], use_container_width=True, hide_index=True, height=400)
+                st.dataframe(
+                    df_resultado_hd[columnas_hd_visibles],
+                    use_container_width=True,
+                    hide_index=True,
+                    height=400,
+                    column_config={
+                        "precio mayoreo con IVA": st.column_config.Column("precio mayoreo con IVA", width="small")
+                    }
+                )
             else:
                 st.info("Escribe algo arriba para buscar entre los productos Hd.")
         else:
             df_lista_hd = df_hd.sort_values(by="descripción", ascending=True) if "descripción" in df_hd.columns else df_hd
             st.caption(f"Total de productos Hd: `{len(df_lista_hd)}`")
-            st.dataframe(df_lista_hd[columnas_hd_visibles], use_container_width=True, hide_index=True, height=500)
+            st.dataframe(
+                df_lista_hd[columnas_hd_visibles],
+                use_container_width=True,
+                hide_index=True,
+                height=500,
+                column_config={
+                    "precio mayoreo con IVA": st.column_config.Column("precio mayoreo con IVA", width="small")
+                }
+            )
 
 # --- PANTALLA: GESTIÓN DE CLIENTES ---
 elif st.session_state.pantalla == "gestion_clientes":
@@ -837,9 +853,9 @@ elif st.session_state.pantalla == "historial":
 elif st.session_state.pantalla == "resultados":
     total_sel = len(st.session_state.productos_seleccionados) + len(st.session_state.marcas_seleccionadas)
     
-    col_sup1, col_sup2 = st.columns([7, 3])
+    col_sup1, col_sup2 = st.columns([6, 4])
     with col_sup2:
-        col_b3, col_b4 = st.columns([1.5, 2])
+        col_b3, col_b5, col_b4 = st.columns([1.3, 1.7, 2])
         with col_b3:
             with st.popover("⋮", use_container_width=True):
                 lbl = f"📋 Ver Visita ({total_sel})" if total_sel > 0 else "📋 Ver Visita"
@@ -852,6 +868,10 @@ elif st.session_state.pantalla == "resultados":
                 if st.button("👤 Gestión de Clientes", use_container_width=True):
                     st.session_state.pantalla = "gestion_clientes"
                     st.rerun()
+        with col_b5:
+            if st.button("🏠 Menú", use_container_width=True, help="Regresar al Menú Principal"):
+                st.session_state.pantalla = "menu_principal"
+                st.rerun()
         with col_b4:
             if st.button("← Salir", use_container_width=True):
                 st.session_state.pantalla = "login"
