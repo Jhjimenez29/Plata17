@@ -471,10 +471,73 @@ if st.session_state.pantalla == "login":
         st.write("")
         if st.button("Ingresar", use_container_width=True, type="primary"):
             if usuario == "admin" and contrasena == "1234":
-                st.session_state.pantalla = "resultados"
+                st.session_state.pantalla = "menu_principal"
                 st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos.")
+
+# --- PANTALLA: MENÚ PRINCIPAL ---
+elif st.session_state.pantalla == "menu_principal":
+    st.markdown("<h2 style='text-align: center; color: #000000;'>Auditorías</h2>", unsafe_allow_html=True)
+    st.markdown("---")
+
+    col_m1, col_m2, col_m3 = st.columns([1, 4, 1])
+    with col_m2:
+        if st.button("📋 Auditorías", use_container_width=True, type="primary"):
+            st.session_state.pantalla = "resultados"
+            st.rerun()
+        st.write("")
+        if st.button("💲 Hd", use_container_width=True, type="primary"):
+            st.session_state.pantalla = "hd_consulta"
+            st.rerun()
+        st.write("")
+        if st.button("🚪 Cerrar Sesión", use_container_width=True):
+            st.session_state.pantalla = "login"
+            st.rerun()
+
+# --- PANTALLA: HD (CONSULTA DE PRECIOS) ---
+elif st.session_state.pantalla == "hd_consulta":
+    col_hd1, col_hd2 = st.columns([7, 3])
+    with col_hd1:
+        st.markdown("<h3 style='margin:0;'>💲 Hd</h3>", unsafe_allow_html=True)
+    with col_hd2:
+        if st.button("⬅ Regresar al Menú Principal", use_container_width=True):
+            st.session_state.pantalla = "menu_principal"
+            st.rerun()
+
+    st.markdown("---")
+
+    df_precios_hd = cargar_lista_precios()
+
+    if df_precios_hd is None:
+        st.warning("⚠️ No se cargó 'lista_precios.csv'.")
+    elif "HD" not in df_precios_hd.columns:
+        st.warning("⚠️ El archivo 'lista_precios.csv' todavía no tiene la columna 'HD'.")
+    else:
+        df_hd = df_precios_hd[df_precios_hd["HD"].notna() & (df_precios_hd["HD"].astype(str).str.strip() != "")]
+
+        columnas_hd_visibles = [c for c in ["código", "clave", "descripción", "precio mayoreo con IVA"] if c in df_hd.columns]
+
+        modo_hd = st.radio("Modo:", options=["🔍 Búsqueda", "📋 Ver Lista Completa"], label_visibility="collapsed", horizontal=True)
+
+        if modo_hd == "🔍 Búsqueda":
+            columnas_busqueda_hd = [c for c in ["código", "clave", "descripción"] if c in df_hd.columns]
+            texto_busqueda_hd = st.text_input("🔍 Búsqueda:", placeholder="Escribe código, clave o descripción...", key="input_busqueda_hd")
+
+            if texto_busqueda_hd.strip():
+                mascara_hd = pd.Series(False, index=df_hd.index)
+                for col in columnas_busqueda_hd:
+                    mascara_hd = mascara_hd | df_hd[col].astype(str).str.contains(texto_busqueda_hd.strip(), case=False, na=False)
+                df_resultado_hd = df_hd[mascara_hd].sort_values(by="descripción", ascending=True) if "descripción" in df_hd.columns else df_hd[mascara_hd]
+
+                st.caption(f"Coincidencias: `{len(df_resultado_hd)}`")
+                st.dataframe(df_resultado_hd[columnas_hd_visibles], use_container_width=True, hide_index=True, height=400)
+            else:
+                st.info("Escribe algo arriba para buscar entre los productos Hd.")
+        else:
+            df_lista_hd = df_hd.sort_values(by="descripción", ascending=True) if "descripción" in df_hd.columns else df_hd
+            st.caption(f"Total de productos Hd: `{len(df_lista_hd)}`")
+            st.dataframe(df_lista_hd[columnas_hd_visibles], use_container_width=True, hide_index=True, height=500)
 
 # --- PANTALLA: GESTIÓN DE CLIENTES ---
 elif st.session_state.pantalla == "gestion_clientes":
