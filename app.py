@@ -758,28 +758,27 @@ elif st.session_state.pantalla == "historial":
 elif st.session_state.pantalla == "resultados":
     total_sel = len(st.session_state.productos_seleccionados) + len(st.session_state.marcas_seleccionadas)
     
-    col_sup1, col_sup2 = st.columns([4, 6])
-    with col_sup1:
-        st.markdown("<h3 style='margin:0;'>Esquema comercial 2017</h3>", unsafe_allow_html=True)
+    col_sup1, col_sup2 = st.columns([7, 3])
     with col_sup2:
-        col_b1, col_b2, col_b3, col_b4 = st.columns([3, 2.5, 1.5, 2])
-        with col_b1:
-            lbl = f"📋 Ver Visita ({total_sel})" if total_sel > 0 else "📋 Ver Visita"
-            if st.button(lbl, use_container_width=True, type="primary" if total_sel > 0 else "secondary"):
-                st.session_state.pantalla = "reporte_auditoria"
-                st.rerun()
-        with col_b2:
-            if st.button("📊 Historial", use_container_width=True):
-                st.session_state.pantalla = "historial"
-                st.rerun()
+        col_b3, col_b4 = st.columns([1.5, 2])
         with col_b3:
-            if st.button("⋮", use_container_width=True, help="Menú Opciones / Clientes"):
-                st.session_state.pantalla = "gestion_clientes"
-                st.rerun()
+            with st.popover("⋮", use_container_width=True):
+                lbl = f"📋 Ver Visita ({total_sel})" if total_sel > 0 else "📋 Ver Visita"
+                if st.button(lbl, use_container_width=True, type="primary" if total_sel > 0 else "secondary"):
+                    st.session_state.pantalla = "reporte_auditoria"
+                    st.rerun()
+                if st.button("📊 Historial", use_container_width=True):
+                    st.session_state.pantalla = "historial"
+                    st.rerun()
+                if st.button("👤 Gestión de Clientes", use_container_width=True):
+                    st.session_state.pantalla = "gestion_clientes"
+                    st.rerun()
         with col_b4:
             if st.button("← Salir", use_container_width=True):
                 st.session_state.pantalla = "login"
                 st.rerun()
+
+    st.markdown("<h3 style='margin:4px 0 0 0;'>Esquema comercial 2017</h3>", unsafe_allow_html=True)
 
     st.markdown("---")
     col_panel_filtros, col_panel_resultados = st.columns([3, 7])
