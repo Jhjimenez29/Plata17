@@ -1022,6 +1022,8 @@ elif st.session_state.pantalla == "resultados":
                     for col in columnas_busqueda:
                         mascara = mascara | df_precios[col].astype(str).str.contains(texto_busqueda.strip(), case=False, na=False)
                     df_resultado_busqueda = df_precios[mascara]
+                    if "Descripción Familia" in df_resultado_busqueda.columns:
+                        df_resultado_busqueda = df_resultado_busqueda.sort_values(by="Descripción Familia", ascending=True)
 
                     st.caption(f"Coincidencias: `{len(df_resultado_busqueda)}`")
                     st.dataframe(df_resultado_busqueda[columnas_visibles], use_container_width=True, hide_index=True, height=400)
