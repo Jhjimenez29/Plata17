@@ -514,9 +514,14 @@ elif st.session_state.pantalla == "hd_consulta":
     elif "HD" not in df_precios_hd.columns:
         st.warning("⚠️ El archivo 'lista_precios.csv' todavía no tiene la columna 'HD'.")
     else:
-        df_hd = df_precios_hd[df_precios_hd["HD"].notna() & (df_precios_hd["HD"].astype(str).str.strip() != "")]
+        df_hd = df_precios_hd[df_precios_hd["HD"].notna() & (df_precios_hd["HD"].astype(str).str.strip() != "")].copy()
 
-        columnas_hd_visibles = [c for c in ["código", "clave", "descripción", "precio mayoreo con IVA"] if c in df_hd.columns]
+        if "precio mayoreo con IVA" in df_hd.columns:
+            df_hd["precio mayoreo con IVA"] = df_hd["precio mayoreo con IVA"].apply(
+                lambda x: f"$ {float(x):,.2f}" if pd.notna(x) and str(x).strip() != "" else ""
+            )
+
+        columnas_hd_visibles = [c for c in ["código", "precio mayoreo con IVA", "descripción", "clave"] if c in df_hd.columns]
 
         modo_hd = st.radio("Modo:", options=["🔍 Búsqueda", "📋 Ver Lista Completa"], label_visibility="collapsed", horizontal=True)
 
