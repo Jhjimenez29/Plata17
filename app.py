@@ -74,7 +74,11 @@ def inicializar_estado_sesion():
         "cliente_numero": "",
         "productos_seleccionados": {},
         "marcas_seleccionadas": {},
-        "target_eliminar_historial": []  # Guarda los índices que se van a eliminar
+        "target_eliminar_historial": [],  # Guarda los índices que se van a eliminar
+        "hd_tipo_cliente_seleccion": "Uso libre / Consulta",
+        "hd_cliente_nombre": "",
+        "hd_cliente_numero": "",
+        "hd_precios_seleccionados": {}  # {codigo: {"descripcion":..., "precio":...}}
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -111,6 +115,21 @@ def reiniciar_pantalla_total():
     st.session_state.filtro_familia = "-- Selecciona una familia --"
     st.session_state.busqueda_rapida = ""
     st.session_state.target_eliminar_historial = []
+
+def reiniciar_hd_seleccion():
+    """Limpia la selección de precios y cliente de Hd, sin tocar nada de Auditorías/Esquema Comercial 2017"""
+    keys_a_borrar = [
+        k for k in st.session_state.keys()
+        if k in ["radio_tipo_cliente_hd", "editor_hd_lista_completa", "select_cliente_hd",
+                  "input_nombre_cliente_hd", "input_numero_cliente_hd"]
+    ]
+    for key in keys_a_borrar:
+        del st.session_state[key]
+
+    st.session_state.hd_precios_seleccionados = {}
+    st.session_state.hd_tipo_cliente_seleccion = "Uso libre / Consulta"
+    st.session_state.hd_cliente_nombre = ""
+    st.session_state.hd_cliente_numero = ""
 
 # ==========================================
 # 3. GESTIÓN DE ARCHIVOS Y PERSISTENCIA (CSV/DATOS)
@@ -303,6 +322,58 @@ def consolidar_y_guardar_visita_actual():
         guardar_en_historial_maestro(df_rep)
         if st.session_state.cliente_nombre and st.session_state.cliente_numero:
             guardar_cliente_directorio(st.session_state.cliente_numero, st.session_state.cliente_nombre)
+        return True
+    return False
+
+# --- HISTORIAL PROPIO DE HD (INDEPENDIENTE DEL DE AUDITORÍAS) ---
+def guardar_historial_hd_completo(df):
+    archivo = "historial_hd.csv"
+    df.to_csv(archivo, index=False, encoding='utf-8')
+    respaldar_archivo_en_github(archivo, "Respaldo automatico: historial_hd.csv")
+
+def guardar_en_historial_hd(df_nuevas_filas):
+    archivo = "historial_hd.csv"
+    header = not os.path.exists(archivo)
+    df_nuevas_filas.to_csv(archivo, mode='a', header=header, index=False, encoding='utf-8')
+    respaldar_archivo_en_github(archivo, "Respaldo automatico: nuevo registro en historial_hd.csv")
+
+def cargar_historial_hd():
+    archivo = "historial_hd.csv"
+    if os.path.exists(archivo):
+        for enc in ["utf-8", "latin1"]:
+            try:
+                return pd.read_csv(archivo, encoding=enc)
+            except Exception:
+                continue
+    return pd.DataFrame()
+
+def consolidar_precios_hd_actual():
+    nombre_c = st.session_state.hd_cliente_nombre or "Cliente General"
+    num_c = st.session_state.hd_cliente_numero or "1001"
+
+    filas = []
+    fecha_std = datetime.date.today().strftime("%Y-%m-%d")
+    fecha_hora_actual = datetime.datetime.now().strftime("%d de %B a las %I:%M %p").lower()
+
+    for codigo, datos in st.session_state.hd_precios_seleccionados.items():
+        filas.append({
+            "Fecha": fecha_std,
+            "Fecha_Hora": fecha_hora_actual,
+            "Numero Cliente": num_c,
+            "Nombre Cliente": nombre_c,
+            "Código": codigo,
+            "Descripción": datos.get("descripcion", ""),
+            "Precio Mayoreo con IVA": datos.get("precio", "")
+        })
+
+    return pd.DataFrame(filas)
+
+def consolidar_y_guardar_precios_hd():
+    df_rep = consolidar_precios_hd_actual()
+    if not df_rep.empty:
+        guardar_en_historial_hd(df_rep)
+        if st.session_state.hd_cliente_nombre and st.session_state.hd_cliente_numero:
+            guardar_cliente_directorio(st.session_state.hd_cliente_numero, st.session_state.hd_cliente_nombre)
         return True
     return False
 
@@ -516,49 +587,137 @@ elif st.session_state.pantalla == "hd_consulta":
     else:
         df_hd = df_precios_hd[df_precios_hd["HD"].notna() & (df_precios_hd["HD"].astype(str).str.strip() != "")].copy()
 
-        if "precio mayoreo con IVA" in df_hd.columns:
-            df_hd["precio mayoreo con IVA"] = df_hd["precio mayoreo con IVA"].apply(
-                lambda x: f"$ {float(x):,.2f}" if pd.notna(x) and str(x).strip() != "" else ""
-            )
-
         columnas_hd_visibles = [c for c in ["código", "precio mayoreo con IVA", "descripción", "clave"] if c in df_hd.columns]
 
-        modo_hd = st.radio("Modo:", options=["🔍 Búsqueda", "📋 Ver Lista Completa"], label_visibility="collapsed", horizontal=True)
+        col_panel_filtros_hd, col_panel_resultados_hd = st.columns([3, 7])
 
-        if modo_hd == "🔍 Búsqueda":
-            columnas_busqueda_hd = [c for c in ["código", "clave", "descripción"] if c in df_hd.columns]
-            texto_busqueda_hd = st.text_input("🔍 Búsqueda:", placeholder="Escribe código, clave o descripción...", key="input_busqueda_hd")
+        # PANEL LATERAL: SELECCIÓN DE CLIENTE Y GUARDADO (PROPIO DE HD)
+        with col_panel_filtros_hd:
+            st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>👤 Selección de Cliente</h4></div>", unsafe_allow_html=True)
 
-            if texto_busqueda_hd.strip():
-                mascara_hd = pd.Series(False, index=df_hd.index)
-                for col in columnas_busqueda_hd:
-                    mascara_hd = mascara_hd | df_hd[col].astype(str).str.contains(texto_busqueda_hd.strip(), case=False, na=False)
-                df_resultado_hd = df_hd[mascara_hd].sort_values(by="descripción", ascending=True) if "descripción" in df_hd.columns else df_hd[mascara_hd]
+            opciones_modo_hd = ["Cliente Preexistente", "Cliente Nuevo", "Uso libre / Consulta"]
+            val_actual_hd = st.session_state.hd_tipo_cliente_seleccion
+            idx_m_hd = opciones_modo_hd.index(val_actual_hd) if val_actual_hd in opciones_modo_hd else 0
 
-                st.caption(f"Coincidencias: `{len(df_resultado_hd)}`")
-                st.dataframe(
-                    df_resultado_hd[columnas_hd_visibles],
-                    use_container_width=True,
-                    hide_index=True,
-                    height=400,
-                    column_config={
-                        "precio mayoreo con IVA": st.column_config.Column("precio mayoreo con IVA", width="small")
-                    }
-                )
+            tipo_cli_sel_hd = st.radio("Modo de atención:", options=opciones_modo_hd, index=idx_m_hd, key="radio_tipo_cliente_hd")
+
+            if tipo_cli_sel_hd != st.session_state.hd_tipo_cliente_seleccion:
+                st.session_state.hd_tipo_cliente_seleccion = tipo_cli_sel_hd
+
+            df_dir_clientes_hd = cargar_catalogo_clientes()
+
+            if tipo_cli_sel_hd == "Cliente Preexistente":
+                if df_dir_clientes_hd.empty:
+                    st.caption("⚠️ No hay clientes en el directorio.")
+                else:
+                    dict_clientes_hd = {}
+                    opciones_combo_hd = ["-- Seleccionar --"]
+                    for _, row in df_dir_clientes_hd.iterrows():
+                        nom, num = str(row['Nombre Cliente']).strip(), str(row['Numero Cliente']).strip()
+                        etiqueta = f"{nom} {num}".strip()
+                        opciones_combo_hd.append(etiqueta)
+                        dict_clientes_hd[etiqueta] = (nom, num)
+
+                    cli_sel_str_hd = st.selectbox("Selecciona el cliente:", options=opciones_combo_hd, key="select_cliente_hd")
+                    if cli_sel_str_hd != "-- Seleccionar --":
+                        nom_sel_hd, num_sel_hd = dict_clientes_hd[cli_sel_str_hd]
+                        st.session_state.hd_cliente_nombre = nom_sel_hd
+                        st.session_state.hd_cliente_numero = num_sel_hd
+
+            elif tipo_cli_sel_hd == "Cliente Nuevo":
+                st.session_state.hd_cliente_nombre = st.text_input("Nombre del Cliente Nuevo:", value=st.session_state.hd_cliente_nombre, key="input_nombre_cliente_hd")
+                st.session_state.hd_cliente_numero = st.text_input("Número de Cliente:", value=st.session_state.hd_cliente_numero, key="input_numero_cliente_hd")
+
+            elif tipo_cli_sel_hd == "Uso libre / Consulta":
+                st.session_state.hd_cliente_nombre = ""
+                st.session_state.hd_cliente_numero = ""
+
+            total_sel_hd = len(st.session_state.hd_precios_seleccionados)
+            if total_sel_hd > 0:
+                st.markdown("---")
+                if st.button(f"💾 Guardar ({total_sel_hd}) Precio(s) Marcado(s)", use_container_width=True, type="primary"):
+                    nombre_guardado_hd = st.session_state.hd_cliente_nombre or "Cliente General"
+                    if consolidar_y_guardar_precios_hd():
+                        st.toast(f"✅ ¡Precios guardados para '{nombre_guardado_hd}'!")
+                    reiniciar_hd_seleccion()
+                    st.rerun()
+
+                if st.button("🧹 Limpiar Selección", use_container_width=True):
+                    reiniciar_hd_seleccion()
+                    st.rerun()
+
+        # PANEL DERECHO: BÚSQUEDA / LISTA COMPLETA
+        with col_panel_resultados_hd:
+            modo_hd = st.radio("Modo:", options=["🔍 Búsqueda", "📋 Ver Lista Completa"], label_visibility="collapsed", horizontal=True)
+
+            if modo_hd == "🔍 Búsqueda":
+                columnas_busqueda_hd = [c for c in ["código", "clave", "descripción"] if c in df_hd.columns]
+                texto_busqueda_hd = st.text_input("🔍 Búsqueda:", placeholder="Escribe código, clave o descripción...", key="input_busqueda_hd")
+
+                if texto_busqueda_hd.strip():
+                    mascara_hd = pd.Series(False, index=df_hd.index)
+                    for col in columnas_busqueda_hd:
+                        mascara_hd = mascara_hd | df_hd[col].astype(str).str.contains(texto_busqueda_hd.strip(), case=False, na=False)
+                    df_resultado_hd = df_hd[mascara_hd].sort_values(by="descripción", ascending=True) if "descripción" in df_hd.columns else df_hd[mascara_hd]
+
+                    df_resultado_hd_fmt = df_resultado_hd[columnas_hd_visibles].copy()
+                    if "precio mayoreo con IVA" in df_resultado_hd_fmt.columns:
+                        df_resultado_hd_fmt["precio mayoreo con IVA"] = df_resultado_hd_fmt["precio mayoreo con IVA"].apply(
+                            lambda x: f"$ {float(x):,.2f}" if pd.notna(x) and str(x).strip() != "" else ""
+                        )
+
+                    st.caption(f"Coincidencias: `{len(df_resultado_hd_fmt)}`")
+                    st.dataframe(
+                        df_resultado_hd_fmt,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=400,
+                        column_config={
+                            "precio mayoreo con IVA": st.column_config.Column("precio mayoreo con IVA", width="small")
+                        }
+                    )
+                else:
+                    st.info("Escribe algo arriba para buscar entre los productos Hd.")
             else:
-                st.info("Escribe algo arriba para buscar entre los productos Hd.")
-        else:
-            df_lista_hd = df_hd.sort_values(by="descripción", ascending=True) if "descripción" in df_hd.columns else df_hd
-            st.caption(f"Total de productos Hd: `{len(df_lista_hd)}`")
-            st.dataframe(
-                df_lista_hd[columnas_hd_visibles],
-                use_container_width=True,
-                hide_index=True,
-                height=500,
-                column_config={
-                    "precio mayoreo con IVA": st.column_config.Column("precio mayoreo con IVA", width="small")
-                }
-            )
+                df_lista_hd = df_hd.sort_values(by="descripción", ascending=True) if "descripción" in df_hd.columns else df_hd
+
+                # Contador reservado ARRIBA de la tabla; se llena después, ya con el conteo actualizado
+                contador_placeholder_hd = st.empty()
+
+                df_lista_editor = df_lista_hd[columnas_hd_visibles].copy()
+                if "precio mayoreo con IVA" in df_lista_editor.columns:
+                    df_lista_editor["precio mayoreo con IVA"] = df_lista_editor["precio mayoreo con IVA"].apply(
+                        lambda x: f"$ {float(x):,.2f}" if pd.notna(x) and str(x).strip() != "" else ""
+                    )
+                df_lista_editor.insert(0, "Seleccionar", [
+                    str(df_lista_hd.loc[i, "código"]) in st.session_state.hd_precios_seleccionados for i in df_lista_editor.index
+                ])
+
+                edited_lista_hd = st.data_editor(
+                    df_lista_editor,
+                    column_config={
+                        "Seleccionar": st.column_config.CheckboxColumn("Seleccionar", help="Marca los precios incorrectos", default=False),
+                        "precio mayoreo con IVA": st.column_config.Column("precio mayoreo con IVA", width="small")
+                    },
+                    disabled=[c for c in df_lista_editor.columns if c != "Seleccionar"],
+                    hide_index=True,
+                    use_container_width=True,
+                    height=500,
+                    key="editor_hd_lista_completa"
+                )
+
+                for idx in df_lista_editor.index:
+                    codigo_idx = str(df_lista_hd.loc[idx, "código"])
+                    marcado_idx = bool(edited_lista_hd.loc[idx, "Seleccionar"])
+                    if marcado_idx:
+                        st.session_state.hd_precios_seleccionados[codigo_idx] = {
+                            "descripcion": df_lista_hd.loc[idx, "descripción"] if "descripción" in df_lista_hd.columns else "",
+                            "precio": df_lista_hd.loc[idx, "precio mayoreo con IVA"] if "precio mayoreo con IVA" in df_lista_hd.columns else ""
+                        }
+                    else:
+                        st.session_state.hd_precios_seleccionados.pop(codigo_idx, None)
+
+                contador_placeholder_hd.caption(f"🚩 **{len(st.session_state.hd_precios_seleccionados)}** precio(s) marcado(s) &nbsp;|&nbsp; Total de productos Hd: `{len(df_lista_hd)}`")
 
 # --- PANTALLA: GESTIÓN DE CLIENTES ---
 elif st.session_state.pantalla == "gestion_clientes":
