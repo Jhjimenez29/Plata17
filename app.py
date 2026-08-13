@@ -366,6 +366,17 @@ def consolidar_precios_hd_actual():
             "Precio Mayoreo con IVA": datos.get("precio", "")
         })
 
+    if not filas:
+        filas.append({
+            "Fecha": fecha_std,
+            "Fecha_Hora": fecha_hora_actual,
+            "Numero Cliente": num_c,
+            "Nombre Cliente": nombre_c,
+            "Código": "",
+            "Descripción": "SIN INCIDENCIAS - No se encontraron precios incorrectos",
+            "Precio Mayoreo con IVA": ""
+        })
+
     return pd.DataFrame(filas)
 
 def consolidar_y_guardar_precios_hd():
@@ -591,62 +602,8 @@ elif st.session_state.pantalla == "hd_consulta":
 
         col_panel_filtros_hd, col_panel_resultados_hd = st.columns([3, 7])
 
-        # PANEL LATERAL: SELECCIÓN DE CLIENTE Y GUARDADO (PROPIO DE HD)
-        with col_panel_filtros_hd:
-            st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>👤 Selección de Cliente</h4></div>", unsafe_allow_html=True)
-
-            opciones_modo_hd = ["Cliente Preexistente", "Cliente Nuevo", "Uso libre / Consulta"]
-            val_actual_hd = st.session_state.hd_tipo_cliente_seleccion
-            idx_m_hd = opciones_modo_hd.index(val_actual_hd) if val_actual_hd in opciones_modo_hd else 0
-
-            tipo_cli_sel_hd = st.radio("Modo de atención:", options=opciones_modo_hd, index=idx_m_hd, key="radio_tipo_cliente_hd")
-
-            if tipo_cli_sel_hd != st.session_state.hd_tipo_cliente_seleccion:
-                st.session_state.hd_tipo_cliente_seleccion = tipo_cli_sel_hd
-
-            df_dir_clientes_hd = cargar_catalogo_clientes()
-
-            if tipo_cli_sel_hd == "Cliente Preexistente":
-                if df_dir_clientes_hd.empty:
-                    st.caption("⚠️ No hay clientes en el directorio.")
-                else:
-                    dict_clientes_hd = {}
-                    opciones_combo_hd = ["-- Seleccionar --"]
-                    for _, row in df_dir_clientes_hd.iterrows():
-                        nom, num = str(row['Nombre Cliente']).strip(), str(row['Numero Cliente']).strip()
-                        etiqueta = f"{nom} {num}".strip()
-                        opciones_combo_hd.append(etiqueta)
-                        dict_clientes_hd[etiqueta] = (nom, num)
-
-                    cli_sel_str_hd = st.selectbox("Selecciona el cliente:", options=opciones_combo_hd, key="select_cliente_hd")
-                    if cli_sel_str_hd != "-- Seleccionar --":
-                        nom_sel_hd, num_sel_hd = dict_clientes_hd[cli_sel_str_hd]
-                        st.session_state.hd_cliente_nombre = nom_sel_hd
-                        st.session_state.hd_cliente_numero = num_sel_hd
-
-            elif tipo_cli_sel_hd == "Cliente Nuevo":
-                st.session_state.hd_cliente_nombre = st.text_input("Nombre del Cliente Nuevo:", value=st.session_state.hd_cliente_nombre, key="input_nombre_cliente_hd")
-                st.session_state.hd_cliente_numero = st.text_input("Número de Cliente:", value=st.session_state.hd_cliente_numero, key="input_numero_cliente_hd")
-
-            elif tipo_cli_sel_hd == "Uso libre / Consulta":
-                st.session_state.hd_cliente_nombre = ""
-                st.session_state.hd_cliente_numero = ""
-
-            total_sel_hd = len(st.session_state.hd_precios_seleccionados)
-            if total_sel_hd > 0:
-                st.markdown("---")
-                if st.button(f"💾 Guardar ({total_sel_hd}) Precio(s) Marcado(s)", use_container_width=True, type="primary"):
-                    nombre_guardado_hd = st.session_state.hd_cliente_nombre or "Cliente General"
-                    if consolidar_y_guardar_precios_hd():
-                        st.toast(f"✅ ¡Precios guardados para '{nombre_guardado_hd}'!")
-                    reiniciar_hd_seleccion()
-                    st.rerun()
-
-                if st.button("🧹 Limpiar Selección", use_container_width=True):
-                    reiniciar_hd_seleccion()
-                    st.rerun()
-
-        # PANEL DERECHO: BÚSQUEDA / LISTA COMPLETA
+        # PANEL DERECHO: BÚSQUEDA / LISTA COMPLETA (se procesa PRIMERO para que el conteo de
+        # precios marcados esté al día antes de dibujar el botón de guardado del panel izquierdo)
         with col_panel_resultados_hd:
             modo_hd = st.radio("Modo:", options=["🔍 Búsqueda", "📋 Ver Lista Completa"], label_visibility="collapsed", horizontal=True)
 
@@ -718,6 +675,64 @@ elif st.session_state.pantalla == "hd_consulta":
                         st.session_state.hd_precios_seleccionados.pop(codigo_idx, None)
 
                 contador_placeholder_hd.caption(f"🚩 **{len(st.session_state.hd_precios_seleccionados)}** precio(s) marcado(s) &nbsp;|&nbsp; Total de productos Hd: `{len(df_lista_hd)}`")
+
+        # PANEL LATERAL: SELECCIÓN DE CLIENTE Y GUARDADO (PROPIO DE HD)
+        with col_panel_filtros_hd:
+            st.markdown("<div class='sombra-tenue'><h4 class='titulo-negro'>👤 Selección de Cliente</h4></div>", unsafe_allow_html=True)
+
+            opciones_modo_hd = ["Cliente Preexistente", "Cliente Nuevo", "Uso libre / Consulta"]
+            val_actual_hd = st.session_state.hd_tipo_cliente_seleccion
+            idx_m_hd = opciones_modo_hd.index(val_actual_hd) if val_actual_hd in opciones_modo_hd else 0
+
+            tipo_cli_sel_hd = st.radio("Modo de atención:", options=opciones_modo_hd, index=idx_m_hd, key="radio_tipo_cliente_hd")
+
+            if tipo_cli_sel_hd != st.session_state.hd_tipo_cliente_seleccion:
+                st.session_state.hd_tipo_cliente_seleccion = tipo_cli_sel_hd
+
+            df_dir_clientes_hd = cargar_catalogo_clientes()
+
+            if tipo_cli_sel_hd == "Cliente Preexistente":
+                if df_dir_clientes_hd.empty:
+                    st.caption("⚠️ No hay clientes en el directorio.")
+                else:
+                    dict_clientes_hd = {}
+                    opciones_combo_hd = ["-- Seleccionar --"]
+                    for _, row in df_dir_clientes_hd.iterrows():
+                        nom, num = str(row['Nombre Cliente']).strip(), str(row['Numero Cliente']).strip()
+                        etiqueta = f"{nom} {num}".strip()
+                        opciones_combo_hd.append(etiqueta)
+                        dict_clientes_hd[etiqueta] = (nom, num)
+
+                    cli_sel_str_hd = st.selectbox("Selecciona el cliente:", options=opciones_combo_hd, key="select_cliente_hd")
+                    if cli_sel_str_hd != "-- Seleccionar --":
+                        nom_sel_hd, num_sel_hd = dict_clientes_hd[cli_sel_str_hd]
+                        st.session_state.hd_cliente_nombre = nom_sel_hd
+                        st.session_state.hd_cliente_numero = num_sel_hd
+
+            elif tipo_cli_sel_hd == "Cliente Nuevo":
+                st.session_state.hd_cliente_nombre = st.text_input("Nombre del Cliente Nuevo:", value=st.session_state.hd_cliente_nombre, key="input_nombre_cliente_hd")
+                st.session_state.hd_cliente_numero = st.text_input("Número de Cliente:", value=st.session_state.hd_cliente_numero, key="input_numero_cliente_hd")
+
+            elif tipo_cli_sel_hd == "Uso libre / Consulta":
+                st.session_state.hd_cliente_nombre = ""
+                st.session_state.hd_cliente_numero = ""
+
+            total_sel_hd = len(st.session_state.hd_precios_seleccionados)
+            cliente_con_datos_hd = tipo_cli_sel_hd in ["Cliente Preexistente", "Cliente Nuevo"] and st.session_state.hd_cliente_nombre and st.session_state.hd_cliente_numero
+
+            if total_sel_hd > 0 or cliente_con_datos_hd:
+                st.markdown("---")
+                etiqueta_boton_hd = f"💾 Guardar ({total_sel_hd}) Precio(s) Marcado(s)" if total_sel_hd > 0 else "💾 Guardar Auditoría (Sin Incidencias)"
+                if st.button(etiqueta_boton_hd, use_container_width=True, type="primary"):
+                    nombre_guardado_hd = st.session_state.hd_cliente_nombre or "Cliente General"
+                    if consolidar_y_guardar_precios_hd():
+                        st.toast(f"✅ ¡Auditoría de precios guardada para '{nombre_guardado_hd}'!")
+                    reiniciar_hd_seleccion()
+                    st.rerun()
+
+                if st.button("🧹 Limpiar Selección", use_container_width=True):
+                    reiniciar_hd_seleccion()
+                    st.rerun()
 
 # --- PANTALLA: GESTIÓN DE CLIENTES ---
 elif st.session_state.pantalla == "gestion_clientes":
